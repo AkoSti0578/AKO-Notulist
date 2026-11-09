@@ -94,6 +94,20 @@ data class SpeakerEntity(
     val displayName: String,
 )
 
+/** A moment the user flagged during recording ("belangrijk"). */
+@Entity(
+    tableName = "markers",
+    indices = [Index("recordingId")],
+    foreignKeys = [ForeignKey(RecordingEntity::class, ["id"], ["recordingId"], onDelete = ForeignKey.CASCADE)],
+)
+data class MarkerEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val recordingId: Long,
+    /** Position in the recording (pauses excluded), in ms. */
+    val timeMs: Long,
+    val label: String = "",
+)
+
 @Entity(
     tableName = "summaries",
     foreignKeys = [ForeignKey(RecordingEntity::class, ["id"], ["recordingId"], onDelete = ForeignKey.CASCADE)],

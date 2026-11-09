@@ -33,11 +33,13 @@ object CarTemplates {
         onStop: () -> Unit,
         onPauseResume: () -> Unit,
         onRecent: () -> Unit,
+        onMark: () -> Unit = {},
     ): PaneTemplate {
         val pane = Pane.Builder()
+        val marks = if (s.markers > 0) " · ★${s.markers}" else ""
         val statusTitle = when {
-            s.active && s.paused -> "Gepauzeerd · ${Format.duration(s.elapsedMs)}"
-            s.active -> "● Opname loopt · ${Format.duration(s.elapsedMs)}"
+            s.active && s.paused -> "Gepauzeerd · ${Format.duration(s.elapsedMs)}$marks"
+            s.active -> "● Opname loopt · ${Format.duration(s.elapsedMs)}$marks"
             else -> "Klaar om op te nemen"
         }
         pane.addRow(
@@ -74,7 +76,13 @@ object CarTemplates {
 
         return PaneTemplate.Builder(pane.build())
             .setHeader(Header.Builder().setTitle("AKO Notulist").setStartHeaderAction(Action.APP_ICON).build())
-            .setActionStrip(ActionStrip.Builder().addAction(Action.Builder().setTitle("Recent").setOnClickListener(onRecent).build()).build())
+            .setActionStrip(
+                ActionStrip.Builder().addAction(
+                    // While recording, the strip offers "Markeer" (flag this moment); otherwise "Recent".
+                    if (s.active && !s.paused) Action.Builder().setTitle("★ Markeer").setOnClickListener(onMark).build()
+                    else Action.Builder().setTitle("Recent").setOnClickListener(onRecent).build()
+                ).build()
+            )
             .build()
     }
 

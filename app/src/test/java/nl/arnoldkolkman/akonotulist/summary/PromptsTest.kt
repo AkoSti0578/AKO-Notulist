@@ -51,4 +51,12 @@ class PromptsTest {
         assertEquals(items, decodeList(encodeList(items)))
         assertEquals(emptyList<String>(), decodeList("not json"))
     }
+
+    @Test fun markerHint() {
+        assertEquals("", Prompts.markerHint(emptyList()))
+        assertEquals(
+            "\n\nDe gebruiker markeerde tijdens de opname deze momenten als belangrijk; geef ze extra aandacht: 01:05, 1:00:00.",
+            Prompts.markerHint(listOf(65_000, 3_600_000)),
+        )
+    }
 }

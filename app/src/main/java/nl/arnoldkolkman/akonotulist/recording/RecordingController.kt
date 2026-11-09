@@ -17,6 +17,8 @@ data class RecorderState(
     val paused: Boolean = false,
     /** Normalised input level 0..1 for the level meter. */
     val level: Float = 0f,
+    /** Markers set during this recording (for UI feedback). */
+    val markers: Int = 0,
 )
 
 sealed interface StartResult {
@@ -58,6 +60,7 @@ class RecordingController(private val appContext: Context) {
     fun stop(context: Context = appContext) = send(context, RecordingService.ACTION_STOP)
     fun pause(context: Context = appContext) = send(context, RecordingService.ACTION_PAUSE)
     fun resume(context: Context = appContext) = send(context, RecordingService.ACTION_RESUME)
+    fun mark(context: Context = appContext) = send(context, RecordingService.ACTION_MARK)
 
     private fun send(context: Context, action: String) {
         if (!_state.value.active) return

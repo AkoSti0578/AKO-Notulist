@@ -27,6 +27,8 @@ data class AppSettings(
     /** Comma-separated names/terms that help recognition (keywords/prompt). */
     val vocabulary: String = "",
     val carTts: Boolean = true,
+    /** Keep the display on while the app is visible (toggle on the main screen). */
+    val keepScreenOn: Boolean = false,
     val rateOverrides: Map<String, Double> = emptyMap(),
 ) {
     fun rateFor(modelId: String): Double =
@@ -46,6 +48,7 @@ class SettingsRepository(private val context: Context) {
         val estimateSpeakers = booleanPreferencesKey("estimate_speakers")
         val vocabulary = stringPreferencesKey("vocabulary")
         val carTts = booleanPreferencesKey("car_tts")
+        val keepScreenOn = booleanPreferencesKey("keep_screen_on")
         fun rate(modelId: String) = doublePreferencesKey("rate_$modelId")
     }
 
@@ -65,6 +68,7 @@ class SettingsRepository(private val context: Context) {
             estimateSpeakers = this[Keys.estimateSpeakers] ?: d.estimateSpeakers,
             vocabulary = this[Keys.vocabulary] ?: d.vocabulary,
             carTts = this[Keys.carTts] ?: d.carTts,
+            keepScreenOn = this[Keys.keepScreenOn] ?: d.keepScreenOn,
             rateOverrides = TranscriptionModels.all.mapNotNull { m -> this[Keys.rate(m.id)]?.let { m.id to it } }.toMap(),
         )
     }
@@ -81,6 +85,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.estimateSpeakers] = s.estimateSpeakers
             prefs[Keys.vocabulary] = s.vocabulary
             prefs[Keys.carTts] = s.carTts
+            prefs[Keys.keepScreenOn] = s.keepScreenOn
             TranscriptionModels.all.forEach { m ->
                 val r = s.rateOverrides[m.id]
                 if (r == null) prefs.remove(Keys.rate(m.id)) else prefs[Keys.rate(m.id)] = r

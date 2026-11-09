@@ -7,6 +7,9 @@ import java.util.zip.ZipOutputStream
 
 data class ExportLine(val startMs: Long, val speaker: String?, val text: String)
 
+/** A user-set marker with the sentence that was spoken at that moment. */
+data class ExportMarker(val timeMs: Long, val context: String?)
+
 data class ExportDoc(
     val title: String,
     val createdAt: Long,
@@ -16,6 +19,7 @@ data class ExportDoc(
     val actionItems: List<String> = emptyList(),
     val decisions: List<String> = emptyList(),
     val timestampsEstimated: Boolean = false,
+    val markers: List<ExportMarker> = emptyList(),
 )
 
 /** A speaker turn: consecutive lines of the same speaker joined into one paragraph. */
@@ -64,8 +68,13 @@ object TranscriptExporter {
                 d.decisions.forEach { appendLine("- $it") }
                 appendLine()
             }
-            appendLine("TRANSCRIPT")
         }
+        if (d.markers.isNotEmpty()) {
+            appendLine("MARKERINGEN")
+            d.markers.forEach { appendLine("★ [${Format.timestamp(it.timeMs)}]" + (it.context?.let { c -> " $c" } ?: "")) }
+            appendLine()
+        }
+        if (!d.summary.isNullOrBlank() || d.markers.isNotEmpty()) appendLine("TRANSCRIPT")
         paragraphs(d.lines).forEach { p ->
             append('[').append(Format.timestamp(p.startMs)).append("] ")
             if (p.speaker != null) append(p.speaker).append(": ")
@@ -96,6 +105,12 @@ object TranscriptExporter {
                 appendLine()
             }
         }
+        if (d.markers.isNotEmpty()) {
+            appendLine("## Markeringen")
+            appendLine()
+            d.markers.forEach { appendLine("- ★ `${Format.timestamp(it.timeMs)}`" + (it.context?.let { c -> " " + md(c) } ?: "")) }
+            appendLine()
+        }
         appendLine("## Transcript")
         appendLine()
         paragraphs(d.lines).forEach { p ->
@@ -124,6 +139,10 @@ object TranscriptExporter {
                 body.append(para("Besluiten", style = "Heading1"))
                 d.decisions.forEach { body.append(para("• $it")) }
             }
+        }
+        if (d.markers.isNotEmpty()) {
+            body.append(para("Markeringen", style = "Heading1"))
+            d.markers.forEach { body.append(para("★ [${Format.timestamp(it.timeMs)}]" + (it.context?.let { c -> " $c" } ?: ""))) }
         }
         body.append(para("Transcript", style = "Heading1"))
         paragraphs(d.lines).forEach { p ->

@@ -35,6 +35,11 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -92,6 +97,10 @@ class RecordingsViewModel(private val c: AppContainer) : ViewModel() {
     fun stop() = c.recorder.stop()
     fun pause() = c.recorder.pause()
     fun resume() = c.recorder.resume()
+    fun mark() = c.recorder.mark()
+    fun setKeepScreenOn(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(keepScreenOn = on) } }
+    }
     fun import(uris: List<Uri>, onError: (String) -> Unit) {
         viewModelScope.launch {
             uris.forEach { uri ->
@@ -139,6 +148,17 @@ fun RecordingsScreen(
             TopAppBar(
                 title = { Text("AKO Notulist", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    val keepOn = settings?.keepScreenOn == true
+                    IconButton(onClick = {
+                        vm.setKeepScreenOn(!keepOn)
+                        Toast.makeText(ctx, if (keepOn) "Scherm mag weer uitgaan" else "Scherm blijft aan", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(
+                            if (keepOn) Icons.Filled.LightMode else Icons.Outlined.LightMode,
+                            if (keepOn) "Scherm aanhouden: aan" else "Scherm aanhouden: uit",
+                            tint = if (keepOn) Coral else LocalContentColor.current,
+                        )
+                    }
                     IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Zoeken") }
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Instellingen") }
                 },
@@ -157,6 +177,10 @@ fun RecordingsScreen(
                     onStop = vm::stop,
                     onPause = vm::pause,
                     onResume = vm::resume,
+                    onMark = {
+                        vm.mark()
+                        Toast.makeText(ctx, "Moment gemarkeerd", Toast.LENGTH_SHORT).show()
+                    },
                     onImport = { pickAudio.launch(arrayOf("audio/*", "video/mp4")) },
                 )
             }
@@ -198,6 +222,7 @@ private fun RecorderCard(
     onStop: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    onMark: () -> Unit,
     onImport: () -> Unit,
 ) {
     Card(
@@ -243,6 +268,21 @@ private fun RecorderCard(
                         modifier = Modifier.size(40.dp),
                     )
                 }
+                if (state.active) {
+                    FilledTonalIconButton(
+                        onClick = onMark,
+                        enabled = !state.paused,
+                        modifier = Modifier.size(56.dp),
+                    ) { Icon(Icons.Filled.Star, "Markeer dit moment") }
+                }
+            }
+            if (state.active && state.markers > 0) {
+                Text(
+                    "★ ${state.markers} " + if (state.markers == 1) "markering" else "markeringen",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
             AnimatedVisibility(!state.active) {
                 OutlinedButton(onClick = onImport, modifier = Modifier.padding(top = 16.dp)) {

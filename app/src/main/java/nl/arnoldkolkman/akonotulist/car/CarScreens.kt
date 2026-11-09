@@ -50,7 +50,7 @@ class ControlScreen(carContext: CarContext) : Screen(carContext) {
         lifecycleScope.launch {
             combine(c.recorder.state, c.db.recordings().observeAll()) { s, list -> s to list.firstOrNull() }
                 .collect { (s, first) ->
-                    val structural = s.active != recorder.active || s.paused != recorder.paused ||
+                    val structural = s.active != recorder.active || s.paused != recorder.paused || s.markers != recorder.markers ||
                         first?.status != latest?.status || first?.progress != latest?.progress || first?.id != latest?.id
                     recorder = s
                     latest = first
@@ -71,6 +71,10 @@ class ControlScreen(carContext: CarContext) : Screen(carContext) {
         onStop = { c.recorder.stop(carContext) },
         onPauseResume = { if (recorder.paused) c.recorder.resume(carContext) else c.recorder.pause(carContext) },
         onRecent = { screenManager.push(RecentScreen(carContext)) },
+        onMark = {
+            c.recorder.mark(carContext)
+            CarToast.makeText(carContext, "Moment gemarkeerd", CarToast.LENGTH_SHORT).show()
+        },
     )
 
     private fun startRecording() {

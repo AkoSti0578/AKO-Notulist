@@ -3,6 +3,13 @@ package nl.arnoldkolkman.akonotulist.ui.detail
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.InputChip
+import nl.arnoldkolkman.akonotulist.data.MarkerEntity
+import nl.arnoldkolkman.akonotulist.ui.theme.Coral
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.background
@@ -108,6 +115,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
     val segments by remember(recordingId) { c.db.segments().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     val speakers by remember(recordingId) { c.db.speakers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     val summary by remember(recordingId) { c.db.summaries().observe(recordingId) }.collectAsStateWithLifecycle(null)
+    val markers by remember(recordingId) { c.db.markers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
 
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -180,6 +188,13 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
+            if (markers.isNotEmpty()) {
+                MarkerBar(
+                    markers = markers,
+                    onSeek = { m -> tab = 0; player?.seekTo(m.timeMs) },
+                    onDelete = { m -> scope.launch { c.db.markers().delete(m.id) } },
+                )
+            }
             if (segments.isNotEmpty()) {
                 PrimaryTabRow(selectedTabIndex = tab) {
                     Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transcript") })
@@ -190,6 +205,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                 segments.isEmpty() -> Unit
                 tab == 0 -> TranscriptList(
                     segments, names, speakers, player, followPlayback,
+                    markedSegmentIds = markedSegments(segments, markers),
                     onFollowChange = { followPlayback = it },
                     onReassign = { seg, label -> scope.launch { reassign(c, seg, label) } },
                 )
@@ -309,6 +325,7 @@ private fun TranscriptList(
     speakers: List<SpeakerEntity>,
     player: AudioPlayerState?,
     follow: Boolean,
+    markedSegmentIds: Set<Long>,
     onFollowChange: (Boolean) -> Unit,
     onReassign: (SegmentEntity, String) -> Unit,
 ) {
@@ -324,6 +341,7 @@ private fun TranscriptList(
                     seg = seg,
                     speakerName = seg.speaker?.let { names[it] ?: "Spreker $it" },
                     active = i == activeIndex,
+                    starred = seg.id in markedSegmentIds,
                     speakers = speakers,
                     onReassign = { onReassign(seg, it) },
                 ) { player?.seekTo(seg.startMs) }
@@ -368,6 +386,7 @@ fun SegmentRow(
     seg: SegmentEntity,
     speakerName: String?,
     active: Boolean,
+    starred: Boolean = false,
     speakers: List<SpeakerEntity> = emptyList(),
     onReassign: (String) -> Unit = {},
     onClick: () -> Unit,
@@ -395,6 +414,10 @@ fun SegmentRow(
                     }
                 }
                 Spacer(Modifier.width(8.dp))
+            }
+            if (starred) {
+                Icon(Icons.Filled.Star, "Gemarkeerd", tint = Coral, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
             }
             Text(
                 Format.timestamp(seg.startMs),
@@ -467,6 +490,34 @@ private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate:
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedButton(onClick = onGenerate, enabled = r.status != RecordingStatus.SUMMARIZING) { Text("Opnieuw samenvatten") }
+    }
+}
+
+/** Segment that was being spoken at each marker (the last segment starting at or before it). */
+internal fun markedSegments(segments: List<SegmentEntity>, markers: List<MarkerEntity>): Set<Long> =
+    markers.mapNotNull { m -> segments.lastOrNull { it.startMs <= m.timeMs }?.id }.toSet()
+
+@Composable
+private fun MarkerBar(markers: List<MarkerEntity>, onSeek: (MarkerEntity) -> Unit, onDelete: (MarkerEntity) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+    ) {
+        items(markers, key = { it.id }) { m ->
+            InputChip(
+                selected = false,
+                onClick = { onSeek(m) },
+                label = { Text(Format.timestamp(m.timeMs)) },
+                leadingIcon = { Icon(Icons.Filled.Star, null, tint = Coral, modifier = Modifier.size(16.dp)) },
+                trailingIcon = {
+                    Icon(
+                        Icons.Filled.Close, "Markering verwijderen",
+                        modifier = Modifier.size(16.dp).clickable { onDelete(m) },
+                    )
+                },
+            )
+        }
     }
 }
 

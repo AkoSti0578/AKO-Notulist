@@ -132,6 +132,21 @@ interface SpeakerDao {
 }
 
 @Dao
+interface MarkerDao {
+    @Query("SELECT * FROM markers WHERE recordingId = :recordingId ORDER BY timeMs")
+    fun observe(recordingId: Long): Flow<List<MarkerEntity>>
+
+    @Query("SELECT * FROM markers WHERE recordingId = :recordingId ORDER BY timeMs")
+    suspend fun forRecording(recordingId: Long): List<MarkerEntity>
+
+    @Insert
+    suspend fun insert(marker: MarkerEntity): Long
+
+    @Query("DELETE FROM markers WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
+@Dao
 interface SummaryDao {
     @Query("SELECT * FROM summaries WHERE recordingId = :recordingId")
     fun observe(recordingId: Long): Flow<SummaryEntity?>

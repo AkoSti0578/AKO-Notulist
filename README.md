@@ -47,6 +47,22 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
 - Importeren van m4a, mp3, wav, ogg/opus en meer, via **Delen met…** of de knop
   *Audiobestand importeren*. Elk bestand wordt omgezet naar hetzelfde spraakformaat.
 
+**Handig tijdens het opnemen**
+- **Scherm aanhouden:** de ☀-knop rechtsboven houdt het scherm aan zolang de app open is.
+  Handig als de telefoon op tafel ligt.
+- **Markeringen:** tik tijdens een opname op ⭐, in de app, in de melding of in de auto, om
+  een belangrijk moment vast te leggen.
+  - In het detailscherm staan de markeringen als chips: tik erop om naar dat moment te
+    springen, of op ✕ om ze te verwijderen.
+  - De zin die op dat moment werd uitgesproken krijgt een ⭐ in het transcript.
+  - De markeringen gaan mee in de export.
+  - De samenvatting geeft deze momenten extra aandacht.
+- **Snelle-instellingentegel "Opname":** voeg hem toe via het potloodje in het meldingenpaneel.
+  Daarmee start of stop je een opname met één tik.
+- **App-snelkoppeling:** houd het app-icoon ingedrukt en kies **Opname starten**.
+- **Samenvatting kopiëren:** gebruik de knop op het tabblad Samenvatting, of houd de tekst
+  ingedrukt om een deel te selecteren.
+
 **Transcriptie**
 - Standaard met **sprekerherkenning** (`gpt-4o-transcribe-diarize`). Andere modellen kies je in
   de instellingen.

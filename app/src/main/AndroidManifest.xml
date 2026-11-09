@@ -55,6 +55,18 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Quick-settings tile: start/stop recording from the notification shade. -->
+        <service
+            android:name=".recording.RecordTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_mic"
+            android:label="Opname"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- WorkManager runs long uploads as a dataSync foreground service. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

@@ -89,4 +89,20 @@ class TranscriptExporterTest {
         assertEquals("Overleg_ 9_11", ExportActions.safeFileName("Overleg/ 9:11"))
         assertEquals("transcript", ExportActions.safeFileName("   "))
     }
+
+    @Test fun markersAreExportedBeforeTheTranscript() {
+        val withMarkers = doc.copy(summary = null, markers = listOf(ExportMarker(65_000, "Dan het budget.")))
+        val txt = TranscriptExporter.toText(withMarkers)
+        assertTrue(txt.contains("MARKERINGEN\n★ [01:05] Dan het budget.\n\nTRANSCRIPT\n[00:00] Jan:"))
+        assertTrue(TranscriptExporter.toMarkdown(withMarkers).contains("## Markeringen\n\n- ★ `01:05` Dan het budget."))
+        assertTrue(String(TranscriptExporter.toDocx(withMarkers)).isNotEmpty())
+    }
+
+    @Test fun summaryThenMarkersThenTranscript() {
+        val txt = TranscriptExporter.toText(doc.copy(markers = listOf(ExportMarker(2_000, null))))
+        val iSummary = txt.indexOf("SAMENVATTING")
+        val iMarkers = txt.indexOf("MARKERINGEN")
+        val iTranscript = txt.indexOf("TRANSCRIPT")
+        assertTrue(iSummary in 0 until iMarkers && iMarkers < iTranscript)
+    }
 }

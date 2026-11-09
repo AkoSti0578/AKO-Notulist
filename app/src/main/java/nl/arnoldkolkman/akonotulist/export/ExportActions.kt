@@ -23,11 +23,16 @@ class ExportActions(private val context: Context, private val c: AppContainer) {
         val rec = c.db.recordings().get(recordingId) ?: return@withContext null
         val names = c.db.speakers().forRecording(recordingId).associate { it.label to it.displayName }
         val summary = c.db.summaries().get(recordingId)
+        val segments = c.db.segments().forRecording(recordingId)
+        val markers = c.db.markers().forRecording(recordingId).map { m ->
+            ExportMarker(m.timeMs, segments.lastOrNull { it.startMs <= m.timeMs }?.text)
+        }
         ExportDoc(
             title = rec.title,
             createdAt = rec.createdAt,
             durationMs = rec.durationMs,
-            lines = c.db.segments().forRecording(recordingId).map { s ->
+            markers = markers,
+            lines = segments.map { s ->
                 ExportLine(s.startMs, s.speaker?.let { names[it] ?: "Spreker $it" }, s.text)
             },
             summary = summary?.summary,

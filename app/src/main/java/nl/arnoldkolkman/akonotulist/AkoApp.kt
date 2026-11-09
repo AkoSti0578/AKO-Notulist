@@ -2,6 +2,10 @@ package nl.arnoldkolkman.akonotulist
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +39,18 @@ class AkoApp : Application() {
         Notifications.createChannels(this)
         container.recoverInterruptedRecordings()
         RetentionWorker.schedule(this)
+        publishShortcuts()
+    }
+
+    /** Long-press the launcher icon -> "Opname starten". Dynamic, so it also works for the .debug build. */
+    private fun publishShortcuts() {
+        val record = ShortcutInfoCompat.Builder(this, "record")
+            .setShortLabel("Opname starten")
+            .setLongLabel("Nieuwe opname starten")
+            .setIcon(IconCompat.createWithResource(this, R.drawable.ic_shortcut_mic))
+            .setIntent(Intent(this, MainActivity::class.java).setAction(MainActivity.ACTION_QUICK_RECORD))
+            .build()
+        runCatching { ShortcutManagerCompat.setDynamicShortcuts(this, listOf(record)) }
     }
 }
 

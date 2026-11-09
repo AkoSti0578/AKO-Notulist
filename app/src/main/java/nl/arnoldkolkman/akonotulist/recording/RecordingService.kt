@@ -26,6 +26,7 @@ import nl.arnoldkolkman.akonotulist.R
 import nl.arnoldkolkman.akonotulist.appContainer
 import nl.arnoldkolkman.akonotulist.core.Format
 import nl.arnoldkolkman.akonotulist.core.Notifications
+import nl.arnoldkolkman.akonotulist.data.MarkerEntity
 import nl.arnoldkolkman.akonotulist.data.RecordingEntity
 import nl.arnoldkolkman.akonotulist.data.RecordingSource
 import nl.arnoldkolkman.akonotulist.data.RecordingStatus
@@ -64,6 +65,7 @@ class RecordingService : Service() {
             ACTION_STOP -> stop()
             ACTION_PAUSE -> pause()
             ACTION_RESUME -> resume()
+            ACTION_MARK -> mark()
             else -> if (recorder == null) stopSelf()
         }
         // Do not restart automatically after a kill: a half-written MP4 can't be resumed.
@@ -182,6 +184,18 @@ class RecordingService : Service() {
         }
     }
 
+    /** Flags the current moment as important. Stored with the recording's own timeline. */
+    private fun mark() {
+        if (recorder == null) return
+        val id = recordingId ?: return
+        val at = elapsedMs()
+        controller.update { it.copy(markers = it.markers + 1) }
+        scope.launch(Dispatchers.IO) {
+            container.db.markers().insert(MarkerEntity(recordingId = id, timeMs = at, label = "Markering"))
+        }
+        refreshNotification()
+    }
+
     private fun stop() {
         if (stopping) return
         stopping = true
@@ -235,6 +249,7 @@ class RecordingService : Service() {
         }
         if (paused) b.addAction(R.drawable.ic_mic, "Hervatten", action(ACTION_RESUME, 2))
         else b.addAction(R.drawable.ic_pause, "Pauze", action(ACTION_PAUSE, 3))
+        if (!paused) b.addAction(R.drawable.ic_star, "Markeer", action(ACTION_MARK, 4))
         b.addAction(R.drawable.ic_stop, "Stop", action(ACTION_STOP, 1))
         return b.build()
     }
@@ -281,6 +296,7 @@ class RecordingService : Service() {
         const val ACTION_STOP = "nl.arnoldkolkman.akonotulist.action.STOP"
         const val ACTION_PAUSE = "nl.arnoldkolkman.akonotulist.action.PAUSE"
         const val ACTION_RESUME = "nl.arnoldkolkman.akonotulist.action.RESUME"
+        const val ACTION_MARK = "nl.arnoldkolkman.akonotulist.action.MARK"
 
     }
 }

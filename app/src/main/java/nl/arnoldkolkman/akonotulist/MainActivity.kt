@@ -3,7 +3,9 @@ package nl.arnoldkolkman.akonotulist
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
+import nl.arnoldkolkman.akonotulist.recording.StartResult
 import nl.arnoldkolkman.akonotulist.ui.detail.DetailScreen
 import nl.arnoldkolkman.akonotulist.ui.list.RecordingsScreen
 import nl.arnoldkolkman.akonotulist.ui.search.SearchScreen
@@ -34,6 +37,12 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         setContent {
             AkoTheme {
+                // "Scherm aanhouden": keep the display on while the app is visible.
+                val keepOn = appContainer.settings.settings.collectAsStateWithLifecycle(null).value?.keepScreenOn == true
+                LaunchedEffect(keepOn) {
+                    if (keepOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
                 val nav = rememberNavController()
                 val toOpen = pendingOpen.value
                 LaunchedEffect(toOpen) {
@@ -83,6 +92,18 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         intent ?: return
         intent.getLongExtra(EXTRA_RECORDING_ID, -1).takeIf { it > 0 }?.let { pendingOpen.value = it }
+        if (intent.action == ACTION_QUICK_RECORD) {
+            // From the launcher shortcut or the quick-settings tile: start recording right away.
+            intent.action = Intent.ACTION_MAIN
+            val msg = when (val r = appContainer.recorder.start(this)) {
+                StartResult.Started -> "Opname gestart"
+                StartResult.AlreadyRecording -> "Er loopt al een opname"
+                StartResult.MissingPermission -> "Tik op de rode knop om microfoontoestemming te geven"
+                is StartResult.Failed -> "Opname kon niet starten (${r.reason})"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
         val uris: List<Uri> = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
             Intent.ACTION_SEND_MULTIPLE ->
@@ -103,5 +124,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_RECORDING_ID = "recording_id"
+        const val ACTION_QUICK_RECORD = "nl.arnoldkolkman.akonotulist.action.QUICK_RECORD"
     }
 }

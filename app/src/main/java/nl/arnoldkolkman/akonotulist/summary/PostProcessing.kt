@@ -96,6 +96,12 @@ object Prompts {
         }
     }
 
+    /** Tells the model which moments the user flagged as important during the recording. */
+    fun markerHint(markerTimesMs: List<Long>): String =
+        if (markerTimesMs.isEmpty()) ""
+        else "\n\nDe gebruiker markeerde tijdens de opname deze momenten als belangrijk; geef ze extra aandacht: " +
+            markerTimesMs.joinToString(", ") { Format.timestamp(it) } + "."
+
     /** Transcript as plain lines "[mm:ss] Naam: tekst" for the summary prompt. */
     fun transcriptForPrompt(segments: List<SegmentEntity>, names: Map<String, String>): String =
         segments.joinToString("\n") { s ->
@@ -167,7 +173,8 @@ class PostProcessor(private val c: AppContainer) {
         val segments = c.db.segments().forRecording(recordingId)
         if (segments.isEmpty()) return
         val names = c.db.speakers().forRecording(recordingId).associate { it.label to it.displayName }
-        val text = Prompts.transcriptForPrompt(segments, names)
+        val markers = c.db.markers().forRecording(recordingId)
+        val text = Prompts.transcriptForPrompt(segments, names) + Prompts.markerHint(markers.map { it.timeMs })
         val out = c.openAi.chatJson(model, Prompts.summarySystem, text, "meeting_summary", Prompts.summarySchema)
         val s = Prompts.parseSummary(out)
         c.db.summaries().upsert(

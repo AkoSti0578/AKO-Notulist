@@ -37,6 +37,12 @@ class CarTemplatesTest {
         val t = control(RecorderState(active = true, recordingId = 2, elapsedMs = 83_000))
         assertEquals("● Opname loopt · 1:23", t.pane.rows[0].title.toString())
         assertEquals(listOf("Stop", "Pauze"), t.pane.actions.map { it.title.toString() })
+        assertEquals("★ Markeer", t.actionStrip!!.actions.single().title.toString())
+    }
+
+    @Test fun markerCountIsShownInStatus() {
+        val t = control(RecorderState(active = true, recordingId = 2, elapsedMs = 83_000, markers = 3))
+        assertEquals("● Opname loopt · 1:23 · ★3", t.pane.rows[0].title.toString())
     }
 
     @Test fun pausedControlScreenOffersResume() {
