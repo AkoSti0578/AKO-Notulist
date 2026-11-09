@@ -88,6 +88,19 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
 - Kies je een model zonder sprekerherkenning, dan kan het chatmodel per zin inschatten wie er
   spreekt. Alleen de labels worden aangepast, de tekst blijft ongewijzigd.
 
+**Vertalen**
+- Op het tabblad **Vertaling** vertaal je met één tik het transcript en de samenvatting naar
+  het **Engels**, **Duits** of **Frans**.
+- De vertaling loopt op de achtergrond door, ook als je het scherm verlaat, en wordt bewaard.
+- Je kunt de vertaling kopiëren of delen.
+- Tik op een vertaalde zin om de audio naar dat moment te laten springen.
+
+**Sprekers benoemen (ook achteraf)**
+- Er verschijnt een melding **"Wie is wie?"** in het transcript, of gebruik het 👥-icoon bovenin.
+- **Namen voorstellen uit gesprek:** het chatmodel leidt namen af uit aanspreekvormen en
+  voorstelrondjes, zoals "Goedemorgen Jan". Jij controleert en bevestigt.
+- Na het hernoemen biedt de app aan om de samenvatting bij te werken met de nieuwe namen.
+
 **Overzicht en export**
 - Een lijst met datum, duur, status (met voortgang) en kostenschatting.
 - Een detailscherm met het transcript per spreker, met tijdstempels en kleuren.

@@ -94,6 +94,25 @@ data class SpeakerEntity(
     val displayName: String,
 )
 
+/** Translation of a recording's transcript (and summary) into one language. */
+@Entity(
+    tableName = "translations",
+    primaryKeys = ["recordingId", "language"],
+    foreignKeys = [ForeignKey(RecordingEntity::class, ["id"], ["recordingId"], onDelete = ForeignKey.CASCADE)],
+)
+data class TranslationEntity(
+    val recordingId: Long,
+    /** ISO-639-1 code, e.g. "en". */
+    val language: String,
+    /** Translated summary block (summary + action items + decisions), or null if there was none. */
+    val summaryText: String?,
+    /** JSON array of translated segment texts, aligned with segment positions. */
+    val segmentsJson: String,
+    val segmentCount: Int,
+    val model: String,
+    val createdAt: Long,
+)
+
 /** A moment the user flagged during recording ("belangrijk"). */
 @Entity(
     tableName = "markers",

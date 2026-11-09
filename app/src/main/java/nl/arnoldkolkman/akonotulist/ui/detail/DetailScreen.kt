@@ -3,6 +3,8 @@ package nl.arnoldkolkman.akonotulist.ui.detail
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.material3.CircularProgressIndicator
+import nl.arnoldkolkman.akonotulist.summary.Translator
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Close
@@ -116,6 +118,8 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
     val speakers by remember(recordingId) { c.db.speakers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     val summary by remember(recordingId) { c.db.summaries().observe(recordingId) }.collectAsStateWithLifecycle(null)
     val markers by remember(recordingId) { c.db.markers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
+    val translations by remember(recordingId) { c.db.translations().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
+    var askResummarize by remember { mutableStateOf(false) }
 
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -199,17 +203,29 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                 PrimaryTabRow(selectedTabIndex = tab) {
                     Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transcript") })
                     Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Samenvatting") })
+                    Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Vertaling") })
                 }
             }
             when {
                 segments.isEmpty() -> Unit
                 tab == 0 -> TranscriptList(
                     segments, names, speakers, player, followPlayback,
+                    showNameHint = speakers.isNotEmpty() && speakers.any { it.displayName == "Spreker ${it.label}" },
+                    onNameSpeakers = { editSpeakers = true },
                     markedSegmentIds = markedSegments(segments, markers),
                     onFollowChange = { followPlayback = it },
                     onReassign = { seg, label -> scope.launch { reassign(c, seg, label) } },
                 )
-                else -> SummaryPane(summary, r, onGenerate = { PostProcessWorker.enqueue(ctx, r.id, forceSummary = true) })
+                tab == 1 -> SummaryPane(summary, r, onGenerate = { PostProcessWorker.enqueue(ctx, r.id, forceSummary = true) })
+                else -> TranslationPane(
+                    recordingId = r.id,
+                    title = r.title,
+                    segments = segments,
+                    names = names,
+                    translations = translations,
+                    hasKey = c.secrets.hasApiKey(),
+                    onSeek = { ms -> player?.seekTo(ms) },
+                )
             }
         }
     }
@@ -230,10 +246,27 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
         )
     }
     if (editSpeakers) {
-        SpeakersDialog(speakers, onDismiss = { editSpeakers = false }) { updated ->
+        SpeakersDialog(recordingId, speakers, onDismiss = { editSpeakers = false }) { updated ->
+            val changed = updated.any { u -> speakers.firstOrNull { it.label == u.label }?.displayName != u.displayName }
             scope.launch { updated.forEach { c.db.speakers().upsert(it) } }
             editSpeakers = false
+            // The summary was written with the old names: offer to regenerate it.
+            if (changed && summary != null) askResummarize = true
         }
+    }
+    if (askResummarize && r != null) {
+        AlertDialog(
+            onDismissRequest = { askResummarize = false },
+            title = { Text("Samenvatting bijwerken?") },
+            text = { Text("De samenvatting gebruikt nog de oude sprekernamen. Wil je een nieuwe samenvatting met de nieuwe namen?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askResummarize = false
+                    PostProcessWorker.enqueue(ctx, r.id, forceSummary = true)
+                }) { Text("Bijwerken") }
+            },
+            dismissButton = { TextButton(onClick = { askResummarize = false }) { Text("Nee") } },
+        )
     }
     if (confirmDelete && r != null) {
         AlertDialog(
@@ -326,6 +359,8 @@ private fun TranscriptList(
     player: AudioPlayerState?,
     follow: Boolean,
     markedSegmentIds: Set<Long>,
+    showNameHint: Boolean,
+    onNameSpeakers: () -> Unit,
     onFollowChange: (Boolean) -> Unit,
     onReassign: (SegmentEntity, String) -> Unit,
 ) {
@@ -336,6 +371,22 @@ private fun TranscriptList(
     }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+            if (showNameHint) {
+                item(key = "name_hint") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.People, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Wie is wie? Geef de sprekers een naam.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            TextButton(onClick = onNameSpeakers) { Text("Benoemen") }
+                        }
+                    }
+                }
+            }
             itemsIndexed(segments, key = { _, s -> s.id }) { i, seg ->
                 SegmentRow(
                     seg = seg,
@@ -539,17 +590,50 @@ internal fun summaryAsText(title: String, summary: String, actions: List<String>
 }.trimEnd()
 
 @Composable
-private fun SpeakersDialog(speakers: List<SpeakerEntity>, onDismiss: () -> Unit, onSave: (List<SpeakerEntity>) -> Unit) {
+private fun SpeakersDialog(
+    recordingId: Long,
+    speakers: List<SpeakerEntity>,
+    onDismiss: () -> Unit,
+    onSave: (List<SpeakerEntity>) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val c = ctx.appContainer
+    val scope = rememberCoroutineScope()
     val edits = remember { mutableStateMapOf<String, String>().apply { speakers.forEach { put(it.label, it.displayName) } } }
+    var suggesting by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Sprekers") },
+        title = { Text("Sprekers benoemen") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Geef sprekers een naam. Twee sprekers dezelfde naam geven voegt ze samen in de weergave en export.",
+                    "Tip: tik in het transcript op een zin om te horen wie er spreekt. Twee sprekers dezelfde naam " +
+                        "geven voegt ze samen in de weergave en export.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                OutlinedButton(
+                    enabled = !suggesting && c.secrets.hasApiKey(),
+                    onClick = {
+                        suggesting = true
+                        scope.launch {
+                            val result = runCatching { Translator(c).suggestNames(recordingId) }
+                            suggesting = false
+                            result.onSuccess { names ->
+                                names.forEach { (label, name) -> edits[label] = name }
+                                Toast.makeText(
+                                    ctx,
+                                    if (names.isEmpty()) "Geen namen gevonden in het gesprek" else "${names.size} naam/namen voorgesteld — controleer ze",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }.onFailure { Toast.makeText(ctx, "Voorstellen mislukt: ${it.message}", Toast.LENGTH_LONG).show() }
+                        }
+                    },
+                ) {
+                    if (suggesting) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Namen voorstellen uit gesprek")
+                }
                 speakers.forEach { s ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(14.dp).clip(CircleShape).background(speakerColor(s.label)))

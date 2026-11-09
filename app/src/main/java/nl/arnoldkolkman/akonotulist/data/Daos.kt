@@ -132,6 +132,15 @@ interface SpeakerDao {
 }
 
 @Dao
+interface TranslationDao {
+    @Query("SELECT * FROM translations WHERE recordingId = :recordingId")
+    fun observe(recordingId: Long): Flow<List<TranslationEntity>>
+
+    @Upsert
+    suspend fun upsert(t: TranslationEntity)
+}
+
+@Dao
 interface MarkerDao {
     @Query("SELECT * FROM markers WHERE recordingId = :recordingId ORDER BY timeMs")
     fun observe(recordingId: Long): Flow<List<MarkerEntity>>
