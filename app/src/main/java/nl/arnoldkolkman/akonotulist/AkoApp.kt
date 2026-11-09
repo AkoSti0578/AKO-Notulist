@@ -19,6 +19,8 @@ import nl.arnoldkolkman.akonotulist.recording.RecordingController
 import nl.arnoldkolkman.akonotulist.transcribe.AppEvent
 import nl.arnoldkolkman.akonotulist.transcribe.OpenAiClient
 import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionScheduler
+import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionModels
+import nl.arnoldkolkman.akonotulist.summary.PostProcessWorker
 import kotlinx.coroutines.flow.MutableSharedFlow
 import nl.arnoldkolkman.akonotulist.core.RetentionWorker
 import java.io.File
@@ -91,12 +93,25 @@ class AppContainer(val app: Application) {
         if (s.autoTranscribe && secrets.hasApiKey()) transcription.enqueue(id)
     }
 
-    /** The merged transcript is in the database: run post-processing and finish. */
+    /** The merged transcript is in the database: run post-processing (if any) and finish. */
     suspend fun onTranscriptStored(id: Long) {
-        val dao = db.recordings()
-        val rec = dao.get(id) ?: return
-        dao.setStatus(id, RecordingStatus.DONE, 100, null, null)
-        Notifications.notifyFinished(app, id, rec.title, success = true, message = "Het transcript staat klaar.")
+        val s = settings.current()
+        val rec = db.recordings().get(id) ?: return
+        val model = TranscriptionModels.byId(rec.transcriptionModel)
+        val needsSpeakers = s.estimateSpeakers && !model.hasDiarization
+        if (s.summaryEnabled || needsSpeakers) {
+            db.recordings().setStatus(id, RecordingStatus.SUMMARIZING, 95)
+            PostProcessWorker.enqueue(app, id)
+        } else {
+            finishRecording(id, null)
+        }
+    }
+
+    /** Marks a recording DONE (optionally with a non-fatal warning) and tells the user. */
+    suspend fun finishRecording(id: Long, warning: String?) {
+        val rec = db.recordings().get(id) ?: return
+        db.recordings().setStatus(id, RecordingStatus.DONE, 100, null, warning)
+        Notifications.notifyFinished(app, id, rec.title, success = true, message = warning ?: "Het transcript staat klaar.")
         events.tryEmit(AppEvent.TranscriptionDone(id, rec.title))
     }
 

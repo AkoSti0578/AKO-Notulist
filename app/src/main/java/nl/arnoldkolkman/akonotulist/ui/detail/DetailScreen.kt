@@ -1,54 +1,74 @@
 package nl.arnoldkolkman.akonotulist.ui.detail
 
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import nl.arnoldkolkman.akonotulist.data.RecordingEntity
-import nl.arnoldkolkman.akonotulist.data.RecordingStatus
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -56,9 +76,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import nl.arnoldkolkman.akonotulist.AppContainer
 import nl.arnoldkolkman.akonotulist.appContainer
 import nl.arnoldkolkman.akonotulist.core.Format
+import nl.arnoldkolkman.akonotulist.data.RecordingEntity
+import nl.arnoldkolkman.akonotulist.data.RecordingStatus
 import nl.arnoldkolkman.akonotulist.data.SegmentEntity
+import nl.arnoldkolkman.akonotulist.data.SpeakerEntity
+import nl.arnoldkolkman.akonotulist.data.SummaryEntity
+import nl.arnoldkolkman.akonotulist.export.ExportActions
+import nl.arnoldkolkman.akonotulist.export.ExportFormat
+import nl.arnoldkolkman.akonotulist.summary.PostProcessWorker
+import nl.arnoldkolkman.akonotulist.summary.decodeList
 import nl.arnoldkolkman.akonotulist.ui.StatusChip
 import nl.arnoldkolkman.akonotulist.ui.statusLabel
 import nl.arnoldkolkman.akonotulist.ui.theme.speakerColor
@@ -67,14 +96,24 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
-    val c = LocalContext.current.appContainer
+    val ctx = LocalContext.current
+    val c = ctx.appContainer
     val scope = rememberCoroutineScope()
+    val export = remember { ExportActions(ctx, c) }
     val rec by remember(recordingId) { c.db.recordings().observe(recordingId) }.collectAsStateWithLifecycle(null)
     val segments by remember(recordingId) { c.db.segments().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
+    val speakers by remember(recordingId) { c.db.speakers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
+    val summary by remember(recordingId) { c.db.summaries().observe(recordingId) }.collectAsStateWithLifecycle(null)
+
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var editSpeakers by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
+    var followPlayback by remember { mutableStateOf(true) }
 
     val r = rec
+    val names = speakers.associate { it.label to it.displayName }
     val player = rememberAudioPlayer(r?.audioPath)
     LaunchedEffect(player, initialSeekMs) { if (player != null && initialSeekMs != null) player.seekTo(initialSeekMs, play = false) }
 
@@ -84,64 +123,73 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                 title = { Text(r?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Terug") } },
                 actions = {
-                    IconButton(onClick = { renaming = true }) { Icon(Icons.Filled.Edit, "Naam wijzigen") }
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Verwijderen") }
+                    if (speakers.isNotEmpty()) IconButton(onClick = { editSpeakers = true }) { Icon(Icons.Filled.People, "Sprekers") }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, "Meer") }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (segments.isNotEmpty()) {
+                                ExportFormat.entries.forEach { f ->
+                                    DropdownMenuItem(
+                                        text = { Text("Delen als ${f.label}") },
+                                        leadingIcon = { Icon(Icons.Filled.Share, null) },
+                                        onClick = { menuOpen = false; scope.launch { export.share(recordingId, f) } },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Kopiëren naar klembord") },
+                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        scope.launch {
+                                            if (export.copyToClipboard(recordingId)) Toast.makeText(ctx, "Gekopieerd", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                )
+                                HorizontalDivider()
+                            }
+                            DropdownMenuItem(text = { Text("Naam wijzigen") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menuOpen = false; renaming = true })
+                            DropdownMenuItem(
+                                text = { Text("Verwijderen", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { menuOpen = false; confirmDelete = true },
+                            )
+                        }
+                    }
                 },
             )
         },
     ) { padding ->
         if (r == null) return@Scaffold
-        val listState = rememberLazyListState()
-        val activeIndex = player?.let { p -> segments.indexOfLast { it.startMs <= p.positionMs } } ?: -1
-
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusChip(r)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        listOfNotNull(Format.dateTime(r.createdAt), Format.duration(r.durationMs).takeIf { r.durationMs > 0 }).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(statusLabel(r), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-                r.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (r.status.isBusy && r.status != RecordingStatus.IMPORTING) {
-                    LinearProgressIndicator(
-                        progress = { r.progress / 100f },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                }
-                TranscribeActions(r, hasKey = c.secrets.hasApiKey(),
-                    onTranscribe = { fresh -> scope.launch { c.transcription.enqueue(r.id, fresh) } },
-                    onCancel = {
-                        c.transcription.cancel(r.id)
-                        scope.launch { c.db.recordings().setStatus(r.id, RecordingStatus.RECORDED) }
-                    },
-                )
-                if (r.timestampsEstimated && segments.isNotEmpty()) {
-                    Text(
-                        "Tijden zijn geschat (dit model geeft geen tijdstempels).",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            Header(r, segments.isNotEmpty(), c.secrets.hasApiKey(),
+                onTranscribe = { fresh -> scope.launch { c.transcription.enqueue(r.id, fresh) } },
+                onCancel = {
+                    c.transcription.cancel(r.id)
+                    scope.launch { c.db.recordings().setStatus(r.id, RecordingStatus.RECORDED) }
+                },
+            )
             if (player != null) PlayerBar(player) else if (r.audioDeletedAt != null) {
                 Text(
-                    "Audio verwijderd volgens bewaarbeleid; de tekst is bewaard.",
+                    "Audio verwijderd volgens het bewaarbeleid; de tekst is bewaard.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
-                itemsIndexed(segments, key = { _, s -> s.id }) { i, seg ->
-                    SegmentRow(seg, speakerName = seg.speaker?.let { "Spreker $it" }, active = i == activeIndex) {
-                        player?.seekTo(seg.startMs)
-                    }
+            if (segments.isNotEmpty()) {
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transcript") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Samenvatting") })
                 }
+            }
+            when {
+                segments.isEmpty() -> Unit
+                tab == 0 -> TranscriptList(
+                    segments, names, speakers, player, followPlayback,
+                    onFollowChange = { followPlayback = it },
+                    onReassign = { seg, label -> scope.launch { reassign(c, seg, label) } },
+                )
+                else -> SummaryPane(summary, r, onGenerate = { PostProcessWorker.enqueue(ctx, r.id, forceSummary = true) })
             }
         }
     }
@@ -161,6 +209,12 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Annuleren") } },
         )
     }
+    if (editSpeakers) {
+        SpeakersDialog(speakers, onDismiss = { editSpeakers = false }) { updated ->
+            scope.launch { updated.forEach { c.db.speakers().upsert(it) } }
+            editSpeakers = false
+        }
+    }
     if (confirmDelete && r != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -170,6 +224,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                 TextButton(onClick = {
                     confirmDelete = false
                     scope.launch {
+                        c.transcription.cancel(r.id)
                         r.audioPath?.let { File(it).delete() }
                         c.db.recordings().delete(r.id)
                         onBack()
@@ -181,10 +236,109 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
     }
 }
 
+private suspend fun reassign(c: AppContainer, seg: SegmentEntity, label: String) {
+    val all = c.db.segments().forRecording(seg.recordingId)
+    c.db.segments().replace(seg.recordingId, all.map { if (it.id == seg.id) it.copy(id = 0, speaker = label) else it.copy(id = 0) })
+    if (c.db.speakers().forRecording(seg.recordingId).none { it.label == label }) {
+        c.db.speakers().upsert(SpeakerEntity(seg.recordingId, label, "Spreker $label"))
+    }
+}
+
+@Composable
+private fun Header(
+    r: RecordingEntity,
+    hasTranscript: Boolean,
+    hasKey: Boolean,
+    onTranscribe: (Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusChip(r)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                listOfNotNull(
+                    Format.dateTime(r.createdAt),
+                    Format.duration(r.durationMs).takeIf { r.durationMs > 0 },
+                    r.estimatedCostUsd?.let { "≈ " + Format.usd(it) },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (r.status != RecordingStatus.DONE) {
+            Text(statusLabel(r), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+        }
+        r.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (r.status.isBusy && r.status != RecordingStatus.IMPORTING) {
+            LinearProgressIndicator(progress = { r.progress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
+        val canStart = r.audioPath != null && hasKey
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+            when (r.status) {
+                RecordingStatus.RECORDED -> Button(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Transcriberen") }
+                RecordingStatus.FAILED -> if (r.audioPath != null) Button(onClick = { onTranscribe(false) }, enabled = canStart) { Text("Opnieuw proberen") }
+                RecordingStatus.QUEUED, RecordingStatus.TRANSCRIBING -> OutlinedButton(onClick = onCancel) { Text("Annuleren") }
+                RecordingStatus.DONE -> if (r.audioPath != null && !hasTranscript) {
+                    OutlinedButton(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Opnieuw transcriberen") }
+                }
+                else -> Unit
+            }
+        }
+        if (!hasKey && (r.status == RecordingStatus.RECORDED || r.status == RecordingStatus.FAILED)) {
+            Text("Stel eerst je API-sleutel in bij Instellingen.", style = MaterialTheme.typography.bodySmall)
+        }
+        if (r.timestampsEstimated && hasTranscript) {
+            Text(
+                "Tijden zijn geschat: dit model geeft geen tijdstempels.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TranscriptList(
+    segments: List<SegmentEntity>,
+    names: Map<String, String>,
+    speakers: List<SpeakerEntity>,
+    player: AudioPlayerState?,
+    follow: Boolean,
+    onFollowChange: (Boolean) -> Unit,
+    onReassign: (SegmentEntity, String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val activeIndex = player?.let { p -> segments.indexOfLast { it.startMs <= p.positionMs } } ?: -1
+    LaunchedEffect(activeIndex, follow, player?.isPlaying) {
+        if (follow && player?.isPlaying == true && activeIndex >= 0) listState.animateScrollToItem(maxOf(0, activeIndex - 1))
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+            itemsIndexed(segments, key = { _, s -> s.id }) { i, seg ->
+                SegmentRow(
+                    seg = seg,
+                    speakerName = seg.speaker?.let { names[it] ?: "Spreker $it" },
+                    active = i == activeIndex,
+                    speakers = speakers,
+                    onReassign = { onReassign(seg, it) },
+                ) { player?.seekTo(seg.startMs) }
+            }
+        }
+        if (player != null) {
+            SmallFloatingActionButton(
+                onClick = { onFollowChange(!follow) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                containerColor = if (follow) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            ) { Icon(Icons.Filled.MyLocation, if (follow) "Meescrollen uit" else "Meescrollen aan") }
+        }
+    }
+}
+
 @Composable
 fun PlayerBar(p: AudioPlayerState) {
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().padding(16.dp), shape = MaterialTheme.shapes.large) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = MaterialTheme.shapes.large) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
             Slider(
                 value = if (p.durationMs > 0) (p.positionMs.toFloat() / p.durationMs).coerceIn(0f, 1f) else 0f,
                 onValueChange = { f -> p.seekTo((f * p.durationMs).toLong(), play = p.isPlaying) },
@@ -206,45 +360,128 @@ fun PlayerBar(p: AudioPlayerState) {
 }
 
 @Composable
-fun SegmentRow(seg: SegmentEntity, speakerName: String?, active: Boolean, onClick: () -> Unit) {
-    val bg = if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else androidx.compose.ui.graphics.Color.Transparent
-    Column(
-        Modifier.fillMaxWidth().background(bg).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
+fun SegmentRow(
+    seg: SegmentEntity,
+    speakerName: String?,
+    active: Boolean,
+    speakers: List<SpeakerEntity> = emptyList(),
+    onReassign: (String) -> Unit = {},
+    onClick: () -> Unit,
+) {
+    val bg = if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else Color.Transparent
+    var menu by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().background(bg).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (speakerName != null) {
-                Text(speakerName, color = speakerColor(seg.speaker), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                Box {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clip(MaterialTheme.shapes.small).clickable { menu = true }.padding(end = 4.dp),
+                    ) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(speakerColor(seg.speaker)))
+                        Spacer(Modifier.width(6.dp))
+                        Text(speakerName, color = speakerColor(seg.speaker), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        Text("Deze zin toewijzen aan", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                        val next = nextLabel(speakers.map { it.label })
+                        (speakers.map { it.label to it.displayName } + (next to "Nieuwe spreker ($next)")).forEach { (label, name) ->
+                            DropdownMenuItem(text = { Text(name) }, onClick = { menu = false; onReassign(label) })
+                        }
+                    }
+                }
                 Spacer(Modifier.width(8.dp))
             }
-            Text(Format.timestamp(seg.startMs), style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                Format.timestamp(seg.startMs),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Spacer(Modifier.height(2.dp))
         Text(seg.text, style = MaterialTheme.typography.bodyLarge)
     }
 }
 
+private fun nextLabel(used: List<String>): String {
+    var i = 0
+    while (true) {
+        val l = if (i < 26) ('A' + i).toString() else "S${i + 1}"
+        if (l !in used) return l
+        i++
+    }
+}
+
 @Composable
-private fun TranscribeActions(
-    r: RecordingEntity,
-    hasKey: Boolean,
-    onTranscribe: (fresh: Boolean) -> Unit,
-    onCancel: () -> Unit,
-) {
-    val canStart = r.audioPath != null && hasKey
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-        when (r.status) {
-            RecordingStatus.RECORDED -> Button(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Transcriberen") }
-            RecordingStatus.FAILED -> if (r.audioPath != null) {
-                Button(onClick = { onTranscribe(false) }, enabled = canStart) { Text("Opnieuw proberen") }
+private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (summary == null) {
+            Text(
+                if (r.status == RecordingStatus.SUMMARIZING) "Samenvatting wordt gemaakt…" else "Nog geen samenvatting.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (r.status != RecordingStatus.SUMMARIZING) {
+                Button(onClick = onGenerate) {
+                    Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Samenvatting maken")
+                }
             }
-            RecordingStatus.QUEUED, RecordingStatus.TRANSCRIBING -> OutlinedButton(onClick = onCancel) { Text("Annuleren") }
-            RecordingStatus.DONE -> if (r.audioPath != null) {
-                OutlinedButton(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Opnieuw transcriberen") }
-            }
-            else -> Unit
+            return@Column
         }
+        Text("Samenvatting", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text(summary.summary, style = MaterialTheme.typography.bodyLarge)
+        val actions = decodeList(summary.actionItemsJson)
+        if (actions.isNotEmpty()) {
+            Text("Actiepunten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            actions.forEach { Text("☐  $it", style = MaterialTheme.typography.bodyLarge) }
+        }
+        val decisions = decodeList(summary.decisionsJson)
+        if (decisions.isNotEmpty()) {
+            Text("Besluiten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            decisions.forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
+        }
+        Text(
+            "Gemaakt met ${summary.model} op ${Format.dateTime(summary.createdAt)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onGenerate, enabled = r.status != RecordingStatus.SUMMARIZING) { Text("Opnieuw samenvatten") }
     }
-    if (!hasKey && (r.status == RecordingStatus.RECORDED || r.status == RecordingStatus.FAILED)) {
-        Text("Stel eerst je API-sleutel in bij Instellingen.", style = MaterialTheme.typography.bodySmall)
-    }
+}
+
+@Composable
+private fun SpeakersDialog(speakers: List<SpeakerEntity>, onDismiss: () -> Unit, onSave: (List<SpeakerEntity>) -> Unit) {
+    val edits = remember { mutableStateMapOf<String, String>().apply { speakers.forEach { put(it.label, it.displayName) } } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sprekers") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Geef sprekers een naam. Twee sprekers dezelfde naam geven voegt ze samen in de weergave en export.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                speakers.forEach { s ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(14.dp).clip(CircleShape).background(speakerColor(s.label)))
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = edits[s.label].orEmpty(),
+                            onValueChange = { edits[s.label] = it },
+                            label = { Text("Spreker ${s.label}") },
+                            singleLine = true,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(speakers.map { it.copy(displayName = edits[it.label]?.trim().orEmpty().ifEmpty { "Spreker ${it.label}" }) })
+            }) { Text("Opslaan") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleren") } },
+    )
 }
