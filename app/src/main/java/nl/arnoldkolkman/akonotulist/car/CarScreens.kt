@@ -63,70 +63,15 @@ class ControlScreen(carContext: CarContext) : Screen(carContext) {
         }
     }
 
-    override fun onGetTemplate(): Template {
-        val s = recorder
-        val pane = Pane.Builder()
-        val statusTitle = when {
-            s.active && s.paused -> "Gepauzeerd · ${Format.duration(s.elapsedMs)}"
-            s.active -> "● Opname loopt · ${Format.duration(s.elapsedMs)}"
-            else -> "Klaar om op te nemen"
-        }
-        pane.addRow(Row.Builder().setTitle(statusTitle).addText(if (s.active) "Opname loopt ook met je telefoon vergrendeld" else "Tik op Start opname").build())
-
-        latest?.takeIf { !s.active || it.id != s.recordingId }?.let { r ->
-            pane.addRow(
-                Row.Builder()
-                    .setTitle(r.title)
-                    .addText(statusLabel(r) + if (r.durationMs > 0) " · ${Format.duration(r.durationMs)}" else "")
-                    .build()
-            )
-        }
-
-        if (s.active) {
-            pane.addAction(
-                Action.Builder()
-                    .setTitle("Stop")
-                    .setIcon(carContext.icon(R.drawable.ic_stop))
-                    .setBackgroundColor(CarColor.RED)
-                    .setFlags(Action.FLAG_PRIMARY)
-                    .setOnClickListener { c.recorder.stop(carContext) }
-                    .build()
-            )
-            pane.addAction(
-                Action.Builder()
-                    .setTitle(if (s.paused) "Hervatten" else "Pauze")
-                    .setIcon(carContext.icon(if (s.paused) R.drawable.ic_mic else R.drawable.ic_pause))
-                    .setOnClickListener { if (s.paused) c.recorder.resume(carContext) else c.recorder.pause(carContext) }
-                    .build()
-            )
-        } else {
-            pane.addAction(
-                Action.Builder()
-                    .setTitle("Start opname")
-                    .setIcon(carContext.icon(R.drawable.ic_mic))
-                    .setBackgroundColor(CarColor.RED)
-                    .setFlags(Action.FLAG_PRIMARY)
-                    .setOnClickListener(::startRecording)
-                    .build()
-            )
-            pane.addAction(
-                Action.Builder()
-                    .setTitle("Recente opnames")
-                    .setIcon(carContext.icon(R.drawable.ic_list))
-                    .setOnClickListener { screenManager.push(RecentScreen(carContext)) }
-                    .build()
-            )
-        }
-
-        return PaneTemplate.Builder(pane.build())
-            .setHeader(Header.Builder().setTitle("AKO Notulist").setStartHeaderAction(Action.APP_ICON).build())
-            .setActionStrip(
-                ActionStrip.Builder()
-                    .addAction(Action.Builder().setTitle("Recent").setOnClickListener { screenManager.push(RecentScreen(carContext)) }.build())
-                    .build()
-            )
-            .build()
-    }
+    override fun onGetTemplate(): Template = CarTemplates.control(
+        s = recorder,
+        latest = latest,
+        icon = { carContext.icon(it) },
+        onStart = ::startRecording,
+        onStop = { c.recorder.stop(carContext) },
+        onPauseResume = { if (recorder.paused) c.recorder.resume(carContext) else c.recorder.pause(carContext) },
+        onRecent = { screenManager.push(RecentScreen(carContext)) },
+    )
 
     private fun startRecording() {
         when (val r = c.recorder.start(carContext)) {
@@ -158,29 +103,13 @@ class RecentScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     override fun onGetTemplate(): Template {
-        val list = items
-        val builder = ListTemplate.Builder()
-            .setHeader(Header.Builder().setTitle("Recente opnames").setStartHeaderAction(Action.BACK).build())
-        if (list == null) return builder.setLoading(true).build()
-
         val limit = runCatching {
             carContext.getCarService(ConstraintManager::class.java).getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_LIST)
         }.getOrDefault(6)
-        val itemList = ItemList.Builder().setNoItemsMessage("Nog geen opnames")
-        list.take(limit).forEach { r ->
-            itemList.addItem(
-                Row.Builder()
-                    .setTitle(r.title)
-                    .addText(listOfNotNull(Format.dateTime(r.createdAt), Format.duration(r.durationMs).takeIf { r.durationMs > 0 }).joinToString(" · "))
-                    .addText(statusLabel(r))
-                    .setOnClickListener {
-                        if (r.status == RecordingStatus.DONE) screenManager.push(TranscriptScreen(carContext, r.id))
-                        else CarToast.makeText(carContext, statusLabel(r), CarToast.LENGTH_SHORT).show()
-                    }
-                    .build()
-            )
+        return CarTemplates.recent(items, limit) { r ->
+            if (r.status == RecordingStatus.DONE) screenManager.push(TranscriptScreen(carContext, r.id))
+            else CarToast.makeText(carContext, statusLabel(r), CarToast.LENGTH_SHORT).show()
         }
-        return builder.setSingleList(itemList.build()).build()
     }
 }
 
@@ -220,25 +149,9 @@ class TranscriptScreen(carContext: CarContext, private val recordingId: Long) : 
     override fun onGetTemplate(): Template {
         val t = title ?: return MessageTemplate.Builder("Laden…").setLoading(true)
             .setHeader(Header.Builder().setStartHeaderAction(Action.BACK).build()).build()
-        val body = (if (showTranscript) transcriptText else summaryText).orEmpty().ifBlank { "Geen tekst beschikbaar." }
-        val builder = LongMessageTemplate.Builder(truncate(body))
-            .setTitle(t)
-            .setHeaderAction(Action.BACK)
-        if (summaryText != null) {
-            builder.addAction(
-                Action.Builder()
-                    .setTitle(if (showTranscript) "Samenvatting" else "Transcript")
-                    .setOnClickListener { showTranscript = !showTranscript; invalidate() }
-                    .build()
-            )
-        }
-        return builder.build()
+        val body = (if (showTranscript) transcriptText else summaryText).orEmpty()
+        val toggle = if (summaryText != null) (if (showTranscript) "Samenvatting" else "Transcript") else null
+        return CarTemplates.longText(t, body, toggle) { showTranscript = !showTranscript; invalidate() }
     }
 
-    private fun truncate(s: String): String =
-        if (s.length <= MAX_CHARS) s else s.take(MAX_CHARS).substringBeforeLast(' ') + "…\n\n(Volledige tekst in de app op je telefoon.)"
-
-    private companion object {
-        const val MAX_CHARS = 6_000
-    }
 }
