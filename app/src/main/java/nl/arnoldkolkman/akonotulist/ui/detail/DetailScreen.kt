@@ -1,6 +1,10 @@
 package nl.arnoldkolkman.akonotulist.ui.detail
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -430,17 +434,32 @@ private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate:
             }
             return@Column
         }
-        Text("Samenvatting", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        Text(summary.summary, style = MaterialTheme.typography.bodyLarge)
         val actions = decodeList(summary.actionItemsJson)
-        if (actions.isNotEmpty()) {
-            Text("Actiepunten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            actions.forEach { Text("☐  $it", style = MaterialTheme.typography.bodyLarge) }
-        }
         val decisions = decodeList(summary.decisionsJson)
-        if (decisions.isNotEmpty()) {
-            Text("Besluiten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            decisions.forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
+        // Long-press to select any part; the button below copies everything.
+        SelectionContainer {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Samenvatting", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Text(summary.summary, style = MaterialTheme.typography.bodyLarge)
+                if (actions.isNotEmpty()) {
+                    Text("Actiepunten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    actions.forEach { Text("☐  $it", style = MaterialTheme.typography.bodyLarge) }
+                }
+                if (decisions.isNotEmpty()) {
+                    Text("Besluiten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    decisions.forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
+                }
+            }
+        }
+        val ctx = LocalContext.current
+        FilledTonalButton(onClick = {
+            val text = summaryAsText(r.title, summary.summary, actions, decisions)
+            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Samenvatting", text))
+            Toast.makeText(ctx, "Samenvatting gekopieerd", Toast.LENGTH_SHORT).show()
+        }) {
+            Icon(Icons.Filled.ContentCopy, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Samenvatting kopiëren")
         }
         Text(
             "Gemaakt met ${summary.model} op ${Format.dateTime(summary.createdAt)}",
@@ -450,6 +469,23 @@ private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate:
         OutlinedButton(onClick = onGenerate, enabled = r.status != RecordingStatus.SUMMARIZING) { Text("Opnieuw samenvatten") }
     }
 }
+
+internal fun summaryAsText(title: String, summary: String, actions: List<String>, decisions: List<String>): String = buildString {
+    appendLine(title)
+    appendLine()
+    appendLine("Samenvatting")
+    appendLine(summary.trim())
+    if (actions.isNotEmpty()) {
+        appendLine()
+        appendLine("Actiepunten")
+        actions.forEach { appendLine("- $it") }
+    }
+    if (decisions.isNotEmpty()) {
+        appendLine()
+        appendLine("Besluiten")
+        decisions.forEach { appendLine("- $it") }
+    }
+}.trimEnd()
 
 @Composable
 private fun SpeakersDialog(speakers: List<SpeakerEntity>, onDismiss: () -> Unit, onSave: (List<SpeakerEntity>) -> Unit) {
