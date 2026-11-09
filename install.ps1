@@ -36,6 +36,11 @@ Write-Host "Installeren: $Apk"
 & adb install -r -i com.android.vending "$Apk"
 if ($LASTEXITCODE -ne 0) { Write-Error "Installatie mislukt (exitcode $LASTEXITCODE)." }
 
-Write-Host "Controle installer:"
-& adb shell pm list packages -i nl.arnoldkolkman.akonotulist
+$info = (& adb shell pm list packages -i nl.arnoldkolkman.akonotulist) -join "`n"
+Write-Host $info
+if ($info -notmatch "installer=com.android.vending") {
+    Write-Warning "De installer is NIET de Play Store; Android Auto toont de app dan niet."
+    Write-Warning "Staat de Play Store (com.android.vending) op dit toestel? Zonder Play Store wordt -i genegeerd."
+    exit 2
+}
 Write-Host "Klaar. Open AKO Notulist op je telefoon en stel je OpenAI API-sleutel in."

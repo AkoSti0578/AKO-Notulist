@@ -31,6 +31,11 @@ echo "Installeren: $APK"
 # -r = bijwerken met behoud van gegevens, -i com.android.vending = Play Store als installer
 adb install -r -i com.android.vending "$APK"
 
-echo "Controle installer:"
-adb shell pm list packages -i nl.arnoldkolkman.akonotulist || true
+INFO=$(adb shell pm list packages -i nl.arnoldkolkman.akonotulist | tr -d '\r')
+echo "$INFO"
+if ! echo "$INFO" | grep -q "installer=com.android.vending"; then
+  echo "LET OP: de installer is NIET de Play Store. Android Auto toont de app dan niet." >&2
+  echo "Staat de Play Store (com.android.vending) op dit toestel? Zonder Play Store wordt -i genegeerd." >&2
+  exit 2
+fi
 echo "Klaar. Open AKO Notulist op je telefoon en stel je OpenAI API-sleutel in."

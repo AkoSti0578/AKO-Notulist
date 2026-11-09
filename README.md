@@ -10,6 +10,14 @@ installeert de APK zelf (sideloaden).
 - **Minimaal Android 8.0** (API 26), gebouwd tegen Android 17 (API 37).
 - **Geen analytics, geen trackers.** Audio gaat alleen naar `api.openai.com`.
 
+<p>
+  <img src="docs/screenshots/opname.png" width="240" alt="Lopende opname">
+  <img src="docs/screenshots/lijst.png" width="240" alt="Lijst met opnames">
+  <img src="docs/screenshots/instellingen.png" width="240" alt="Instellingen">
+</p>
+
+_Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
+
 ---
 
 ## Inhoud
@@ -269,7 +277,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 De scripts controleren daarna met `pm list packages -i` of `installer=com.android.vending`
-is gezet.
+is gezet, en stoppen met een waarschuwing als dat niet zo is. Op een toestel **zonder** Play
+Store, zoals een standaard emulator, negeert Android de optie `-i` stil.
 
 ---
 
