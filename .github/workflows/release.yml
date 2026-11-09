@@ -72,10 +72,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "AKO-Notulist-$VERSION.apk" "AKO-Notulist-$VERSION.apk.sha256" \
-            --title "AKO Notulist $VERSION" \
-            --notes "Ondertekende APK voor sideloaden. Installatie: zie de README (met PC: install.ps1 / install.sh; zonder PC: UnknownAuto of een Shizuku-installer)."
+          FILES="AKO-Notulist-$VERSION.apk AKO-Notulist-$VERSION.apk.sha256"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            # Release was already created (e.g. by hand on github.com): just attach the APK.
+            gh release upload "$GITHUB_REF_NAME" $FILES --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" $FILES \
+              --title "AKO Notulist $VERSION" \
+              --notes "Ondertekende APK voor sideloaden. Installatie: zie de README (met pc: install.ps1 / install.sh; zonder pc: UnknownAuto of een Shizuku-installer)."
+          fi
 
       - name: Clean up signing material
         if: always()
