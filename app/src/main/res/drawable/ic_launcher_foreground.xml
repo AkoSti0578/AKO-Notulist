@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microphone capsule + transcript lines: "speech becomes text". Safe zone: 66dp circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- mic capsule -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M40,34a8,8 0,0 1,16 0v16a8,8 0,0 1,-16 0z" />
+    <!-- mic yoke -->
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M35,47a13,13 0,0 0,26 0" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M48,60v8M42,70h12" />
+    <!-- transcript lines -->
+    <path android:fillColor="#00000000" android:strokeColor="#E5484D" android:strokeWidth="3.6"
+        android:strokeLineCap="round" android:pathData="M64,38h10" />
+    <path android:fillColor="#00000000" android:strokeColor="#B8EAF3" android:strokeWidth="3.6"
+        android:strokeLineCap="round" android:pathData="M64,47h14" />
+    <path android:fillColor="#00000000" android:strokeColor="#B8EAF3" android:strokeWidth="3.6"
+        android:strokeLineCap="round" android:pathData="M64,56h8" />
+</vector>

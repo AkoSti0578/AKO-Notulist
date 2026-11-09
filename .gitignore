@@ -1,0 +1,28 @@
+# Build output
+build/
+*/build/
+.gradle/
+.kotlin/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# Local configuration / secrets — NEVER commit these
+local.properties
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+secrets.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+.externalNativeBuild/
+.cxx/
