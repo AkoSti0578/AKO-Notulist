@@ -2,7 +2,7 @@
 # Verhoogt versionCode met 1, zet versionName, commit en tagt (v<versie>).
 # Gebruik:  scripts/bump-version.sh 1.2.0   daarna:  git push && git push --tags
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$0")/.."  # project root; works with or without git
 NEW="${1:?Gebruik: scripts/bump-version.sh <MAJOR.MINOR.PATCH>}"
 [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Geen semver: $NEW"; exit 1; }
 CODE=$(grep '^versionCode=' version.properties | cut -d= -f2)

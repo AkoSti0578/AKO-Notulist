@@ -2,7 +2,7 @@
 # Maakt een release-keystore + keystore.properties (beide buiten git) en toont de waarden
 # voor de GitHub Secrets. Eenmalig uitvoeren; MAAK DAARNA EEN BACK-UP VAN DE KEYSTORE.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$0")/.."  # project root; works with or without git
 
 KEYSTORE="${1:-$HOME/.android-keystores/ako-notulist-release.jks}"
 ALIAS="ako-notulist"
