@@ -1,6 +1,12 @@
 package nl.arnoldkolkman.akonotulist.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import nl.arnoldkolkman.akonotulist.data.RecordingEntity
+import nl.arnoldkolkman.akonotulist.data.RecordingStatus
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -101,6 +107,26 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                 }
                 Text(statusLabel(r), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
                 r.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (r.status.isBusy && r.status != RecordingStatus.IMPORTING) {
+                    LinearProgressIndicator(
+                        progress = { r.progress / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+                TranscribeActions(r, hasKey = c.secrets.hasApiKey(),
+                    onTranscribe = { fresh -> scope.launch { c.transcription.enqueue(r.id, fresh) } },
+                    onCancel = {
+                        c.transcription.cancel(r.id)
+                        scope.launch { c.db.recordings().setStatus(r.id, RecordingStatus.RECORDED) }
+                    },
+                )
+                if (r.timestampsEstimated && segments.isNotEmpty()) {
+                    Text(
+                        "Tijden zijn geschat (dit model geeft geen tijdstempels).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (player != null) PlayerBar(player) else if (r.audioDeletedAt != null) {
                 Text(
@@ -194,5 +220,31 @@ fun SegmentRow(seg: SegmentEntity, speakerName: String?, active: Boolean, onClic
         }
         Spacer(Modifier.height(2.dp))
         Text(seg.text, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun TranscribeActions(
+    r: RecordingEntity,
+    hasKey: Boolean,
+    onTranscribe: (fresh: Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val canStart = r.audioPath != null && hasKey
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+        when (r.status) {
+            RecordingStatus.RECORDED -> Button(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Transcriberen") }
+            RecordingStatus.FAILED -> if (r.audioPath != null) {
+                Button(onClick = { onTranscribe(false) }, enabled = canStart) { Text("Opnieuw proberen") }
+            }
+            RecordingStatus.QUEUED, RecordingStatus.TRANSCRIBING -> OutlinedButton(onClick = onCancel) { Text("Annuleren") }
+            RecordingStatus.DONE -> if (r.audioPath != null) {
+                OutlinedButton(onClick = { onTranscribe(true) }, enabled = canStart) { Text("Opnieuw transcriberen") }
+            }
+            else -> Unit
+        }
+    }
+    if (!hasKey && (r.status == RecordingStatus.RECORDED || r.status == RecordingStatus.FAILED)) {
+        Text("Stel eerst je API-sleutel in bij Instellingen.", style = MaterialTheme.typography.bodySmall)
     }
 }

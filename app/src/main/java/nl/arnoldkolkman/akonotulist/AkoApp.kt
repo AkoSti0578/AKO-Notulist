@@ -16,7 +16,11 @@ import nl.arnoldkolkman.akonotulist.data.AppDatabase
 import nl.arnoldkolkman.akonotulist.data.RecordingStatus
 import nl.arnoldkolkman.akonotulist.recording.AudioImporter
 import nl.arnoldkolkman.akonotulist.recording.RecordingController
+import nl.arnoldkolkman.akonotulist.transcribe.AppEvent
 import nl.arnoldkolkman.akonotulist.transcribe.OpenAiClient
+import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionScheduler
+import kotlinx.coroutines.flow.MutableSharedFlow
+import nl.arnoldkolkman.akonotulist.core.RetentionWorker
 import java.io.File
 
 class AkoApp : Application() {
@@ -28,6 +32,7 @@ class AkoApp : Application() {
         container = AppContainer(this)
         Notifications.createChannels(this)
         container.recoverInterruptedRecordings()
+        RetentionWorker.schedule(this)
     }
 }
 
@@ -44,6 +49,10 @@ class AppContainer(val app: Application) {
     val recorder = RecordingController(app)
     val importer = AudioImporter(app)
     val openAi = OpenAiClient(apiKey = { secrets.getApiKey() })
+    val transcription by lazy { TranscriptionScheduler(app, this) }
+
+    /** One-shot events, e.g. "transcription done" for the car's spoken notice. */
+    val events = MutableSharedFlow<AppEvent>(extraBufferCapacity = 16)
 
     suspend fun testApiKey(): String = openAi.testKey()
 
@@ -79,6 +88,16 @@ class AppContainer(val app: Application) {
                 estimatedCostUsd = Format.estimateCostUsd(rec.durationMs, s.rateFor(s.transcriptionModel)),
             )
         )
+        if (s.autoTranscribe && secrets.hasApiKey()) transcription.enqueue(id)
+    }
+
+    /** The merged transcript is in the database: run post-processing and finish. */
+    suspend fun onTranscriptStored(id: Long) {
+        val dao = db.recordings()
+        val rec = dao.get(id) ?: return
+        dao.setStatus(id, RecordingStatus.DONE, 100, null, null)
+        Notifications.notifyFinished(app, id, rec.title, success = true, message = "Het transcript staat klaar.")
+        events.tryEmit(AppEvent.TranscriptionDone(id, rec.title))
     }
 
     /**
