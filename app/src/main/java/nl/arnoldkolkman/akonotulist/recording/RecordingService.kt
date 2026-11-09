@@ -162,7 +162,7 @@ class RecordingService : Service() {
 
     private fun pause() {
         val r = recorder ?: return
-        if (paused || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        if (paused) return
         runCatching { r.pause() }.onSuccess {
             accumulatedMs = elapsedMs()
             paused = true
@@ -173,7 +173,7 @@ class RecordingService : Service() {
 
     private fun resume() {
         val r = recorder ?: return
-        if (!paused || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        if (!paused) return
         runCatching { r.resume() }.onSuccess {
             segmentStartedAt = SystemClock.elapsedRealtime()
             paused = false
@@ -212,6 +212,9 @@ class RecordingService : Service() {
 
     private fun refreshNotification() {
         if (recorder == null) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
         runCatching { NotificationManagerCompat.from(this).notify(Notifications.ID_RECORDING, buildNotification()) }
     }
 
@@ -230,10 +233,8 @@ class RecordingService : Service() {
         if (!paused) {
             b.setUsesChronometer(true).setWhen(System.currentTimeMillis() - elapsed).setShowWhen(true)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            if (paused) b.addAction(R.drawable.ic_mic, "Hervatten", action(ACTION_RESUME, 2))
-            else b.addAction(R.drawable.ic_pause, "Pauze", action(ACTION_PAUSE, 3))
-        }
+        if (paused) b.addAction(R.drawable.ic_mic, "Hervatten", action(ACTION_RESUME, 2))
+        else b.addAction(R.drawable.ic_pause, "Pauze", action(ACTION_PAUSE, 3))
         b.addAction(R.drawable.ic_stop, "Stop", action(ACTION_STOP, 1))
         return b.build()
     }

@@ -27,7 +27,6 @@ object Notifications {
     fun doneId(recordingId: Long) = ID_DONE_BASE + (recordingId % 10_000).toInt()
 
     fun createChannels(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannels(
             listOf(

@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.core.content.edit
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -32,9 +33,9 @@ class SecretStore(context: Context) {
     fun setApiKey(value: String?) {
         val trimmed = value?.trim().orEmpty()
         if (trimmed.isEmpty()) {
-            prefs.edit().remove(PREF_API_KEY).apply()
+            prefs.edit { remove(PREF_API_KEY) }
         } else {
-            prefs.edit().putString(PREF_API_KEY, encrypt(trimmed)).apply()
+            prefs.edit { putString(PREF_API_KEY, encrypt(trimmed)) }
         }
     }
 

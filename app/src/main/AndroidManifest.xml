@@ -61,6 +61,27 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!-- Android Auto (Car App Library). Category IOT: personal use, not published on Play. -->
+        <service
+            android:name=".car.AkoCarAppService"
+            android:exported="true"
+            tools:ignore="ExportedService"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.IOT" />
+            </intent-filter>
+        </service>
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <!-- API level 5+: Header, FLAG_PRIMARY, requestPermissions. Any current Android Auto supports it. -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="5" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

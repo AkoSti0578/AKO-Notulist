@@ -25,6 +25,7 @@ import java.io.File
  * Imports audio shared to the app or picked with the file picker. The content is first copied
  * to private storage (URI grants from other apps can expire), then transcoded in a worker.
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 class AudioImporter(private val context: Context) {
 
     suspend fun import(uri: Uri): Long = withContext(Dispatchers.IO) {
