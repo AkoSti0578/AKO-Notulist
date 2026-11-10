@@ -104,6 +104,13 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
 - **Meerdere opnames tegelijk indelen:** houd een opname ingedrukt, tik op de andere en kies 🏷.
 - Actiepunten zijn ook in het detailscherm af te vinken, gekoppeld aan het overzicht van de categorie.
 
+<p>
+  <img src="docs/screenshots/categorie-filter.png" width="200" alt="Filter op categorie">
+  <img src="docs/screenshots/categorie-overzicht.png" width="200" alt="Overzicht per categorie">
+  <img src="docs/screenshots/detail-categorie.png" width="200" alt="Detail met categorieën en actiepunten">
+  <img src="docs/screenshots/categorie-bewerken.png" width="200" alt="Categorie bewerken">
+</p>
+
 **Vertalen**
 - Op het tabblad **Vertaling** vertaal je met één tik het transcript en de samenvatting naar
   het **Engels**, **Duits** of **Frans**.
