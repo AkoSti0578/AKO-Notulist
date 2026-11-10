@@ -4,6 +4,36 @@ import android.Manifest
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import nl.arnoldkolkman.akonotulist.category.CategoryFilter
+import nl.arnoldkolkman.akonotulist.category.CategoryInsights
+import nl.arnoldkolkman.akonotulist.data.CategoryEntity
+import nl.arnoldkolkman.akonotulist.data.CategoryWithCount
+import nl.arnoldkolkman.akonotulist.data.RecordingCategoryRef
+import nl.arnoldkolkman.akonotulist.ui.category.CategoryChip
+import nl.arnoldkolkman.akonotulist.ui.category.CategoryPickerDialog
+import nl.arnoldkolkman.akonotulist.ui.theme.categoryColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -89,6 +119,18 @@ class RecordingsViewModel(private val c: AppContainer) : ViewModel() {
     val recordings: StateFlow<List<RecordingEntity>> =
         c.db.recordings().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val recorder: StateFlow<RecorderState> = c.recorder.state
+    val categories: StateFlow<List<CategoryWithCount>> =
+        c.db.categories().observeWithCounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val refs: StateFlow<List<RecordingCategoryRef>> =
+        c.db.categories().observeAllRefs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Bulk edit: categories in [now] are added to all [ids]; those dropped from [before] are removed. */
+    fun applyCategories(ids: Set<Long>, before: Set<Long>, now: Set<Long>) {
+        viewModelScope.launch {
+            (now - before).forEach { c.categories.applyToMany(ids, it, add = true) }
+            (before - now).forEach { c.categories.applyToMany(ids, it, add = false) }
+        }
+    }
     val settings: StateFlow<AppSettings?> =
         c.settings.settings.map { it }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -116,6 +158,8 @@ fun RecordingsScreen(
     onOpen: (Long) -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    onCategories: () -> Unit,
+    onCategoryDashboard: (Long) -> Unit,
 ) {
     val ctx = LocalContext.current
     val vm: RecordingsViewModel = viewModel { RecordingsViewModel(ctx.appContainer) }
@@ -123,6 +167,19 @@ fun RecordingsScreen(
     val recorder by vm.recorder.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    val refs by vm.refs.collectAsStateWithLifecycle()
+    var filterKey by rememberSaveable { mutableStateOf(CategoryFilter.All.encode()) }
+    val filter = CategoryFilter.decode(filterKey).let { f ->
+        // A deleted category falls back to "Alle".
+        if (f is CategoryFilter.Category && categories.isNotEmpty() && categories.none { it.id == f.id }) CategoryFilter.All else f
+    }
+    var selection by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var bulkPicker by remember { mutableStateOf(false) }
+    val catById = remember(categories) { categories.associate { it.id to it.toEntity() } }
+    val catsByRec = remember(refs) { refs.groupBy { it.recordingId } }
+    val shown = remember(recordings, refs, filter) { CategoryInsights.filter(recordings, refs, filter) }
+    BackHandler(enabled = selection.isNotEmpty()) { selection = emptySet() }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.RECORD_AUDIO] == true) {
@@ -145,6 +202,18 @@ fun RecordingsScreen(
 
     Scaffold(
         topBar = {
+            if (selection.isNotEmpty()) {
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = { selection = emptySet() }) { Icon(Icons.Filled.Close, "Selectie opheffen") } },
+                    title = { Text("${selection.size} geselecteerd") },
+                    actions = {
+                        IconButton(onClick = { selection = shown.mapTo(HashSet()) { it.id } }) { Icon(Icons.Filled.SelectAll, "Alles selecteren") }
+                        IconButton(onClick = { bulkPicker = true }) { Icon(Icons.AutoMirrored.Filled.Label, "Categorie toewijzen") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                )
+                return@Scaffold
+            }
             TopAppBar(
                 title = { Text("AKO Notulist", fontWeight = FontWeight.SemiBold) },
                 actions = {
@@ -160,6 +229,7 @@ fun RecordingsScreen(
                         )
                     }
                     IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Zoeken") }
+                    IconButton(onClick = onCategories) { Icon(Icons.AutoMirrored.Filled.Label, "Categorieën") }
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Instellingen") }
                 },
             )
@@ -197,13 +267,90 @@ fun RecordingsScreen(
                     )
                 }
             } else {
-                item {
+                item(key = "header") {
                     Text("Opnames", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
                 }
-                items(recordings, key = { it.id }) { rec -> RecordingRow(rec) { onOpen(rec.id) } }
+                item(key = "filters") {
+                    CategoryFilterRow(
+                        categories = categories,
+                        total = recordings.size,
+                        uncategorized = CategoryInsights.uncategorizedCount(recordings, refs),
+                        selected = filter,
+                        onSelect = { filterKey = it.encode(); selection = emptySet() },
+                        onManage = onCategories,
+                    )
+                }
+                (filter as? CategoryFilter.Category)?.let { f ->
+                    catById[f.id]?.let { cat ->
+                        item(key = "banner_${cat.id}") { CategoryBanner(cat, shown.size) { onCategoryDashboard(cat.id) } }
+                    }
+                }
+                if (shown.isEmpty()) {
+                    item(key = "empty_filter") {
+                        Text(
+                            if (filter == CategoryFilter.Uncategorized) "Alle opnames zijn ingedeeld. 👍"
+                            else "Nog geen opnames in deze categorie. Houd een opname ingedrukt om hem hier in te delen.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                }
+                items(shown, key = { it.id }) { rec ->
+                    val recCats = catsByRec[rec.id].orEmpty().mapNotNull { ref -> catById[ref.categoryId]?.let { it to ref.byAi } }
+                    RecordingRow(
+                        rec = rec,
+                        categories = recCats,
+                        selected = rec.id in selection,
+                        selectionMode = selection.isNotEmpty(),
+                        onLongClick = { selection = selection + rec.id },
+                    ) {
+                        if (selection.isNotEmpty()) {
+                            selection = if (rec.id in selection) selection - rec.id else selection + rec.id
+                        } else onOpen(rec.id)
+                    }
+                }
             }
         }
     }
+
+    if (bulkPicker) {
+        BulkCategoryDialog(
+            categories = categories,
+            selection = selection,
+            refs = refs,
+            onManage = { bulkPicker = false; onCategories() },
+            onDismiss = { bulkPicker = false },
+        ) { before, now ->
+            vm.applyCategories(selection, before, now)
+            bulkPicker = false
+            Toast.makeText(ctx, "${selection.size} opname(s) bijgewerkt", Toast.LENGTH_SHORT).show()
+            selection = emptySet()
+        }
+    }
+}
+
+@Composable
+private fun BulkCategoryDialog(
+    categories: List<CategoryWithCount>,
+    selection: Set<Long>,
+    refs: List<RecordingCategoryRef>,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+    onApply: (before: Set<Long>, now: Set<Long>) -> Unit,
+) {
+    // Pre-check only the categories that ALL selected recordings already share.
+    val common = remember(selection, refs) {
+        selection.map { rid -> refs.filter { it.recordingId == rid }.mapTo(HashSet()) { it.categoryId } }
+            .reduceOrNull { a, b -> a.intersect(b).toHashSet() }.orEmpty()
+    }
+    CategoryPickerDialog(
+        title = "Categorie voor ${selection.size} opname(s)",
+        categories = categories.map { it.toEntity() },
+        initiallySelected = common,
+        onDismiss = onDismiss,
+        onManage = onManage,
+    ) { now -> onApply(common, now) }
 }
 
 private fun handleStart(result: StartResult, ctx: android.content.Context) {
@@ -331,35 +478,131 @@ private fun ApiKeyBanner(onSettings: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
-private fun RecordingRow(rec: RecordingEntity, onClick: () -> Unit) {
+private fun RecordingRow(
+    rec: RecordingEntity,
+    categories: List<Pair<CategoryEntity, Boolean>>,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val accent = categories.firstOrNull()?.first?.let { categoryColor(it.colorIndex) }
     Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        modifier = Modifier.fillMaxWidth().clip(CardDefaults.shape).combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            // Thin colour stripe of the (first) category.
+            Box(Modifier.width(4.dp).fillMaxHeight().background(accent ?: Color.Transparent))
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.align(Alignment.CenterVertically))
+            }
+            Column(Modifier.padding(start = if (selectionMode) 0.dp else 12.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        rec.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    StatusChip(rec)
+                }
+                Spacer(Modifier.height(4.dp))
+                val meta = buildList {
+                    add(Format.dateTime(rec.createdAt))
+                    if (rec.durationMs > 0) add(Format.duration(rec.durationMs))
+                    rec.estimatedCostUsd?.let { add("≈ " + Format.usd(it)) }
+                }.joinToString("  ·  ")
+                Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (categories.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(top = 6.dp),
+                    ) { categories.forEach { (cat, byAi) -> CategoryChip(cat, small = true, byAi = byAi) } }
+                }
+                rec.errorMessage?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryFilterRow(
+    categories: List<CategoryWithCount>,
+    total: Int,
+    uncategorized: Int,
+    selected: CategoryFilter,
+    onSelect: (CategoryFilter) -> Unit,
+    onManage: () -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+        item {
+            FilterChip(selected = selected == CategoryFilter.All, onClick = { onSelect(CategoryFilter.All) }, label = { Text("Alle ($total)") })
+        }
+        items(categories, key = { it.id }) { c ->
+            val color = categoryColor(c.colorIndex)
+            val isSel = selected == CategoryFilter.Category(c.id)
+            FilterChip(
+                selected = isSel,
+                onClick = { onSelect(CategoryFilter.Category(c.id)) },
+                label = { Text((if (c.emoji.isBlank()) "" else c.emoji + " ") + "${c.name} (${c.recordingCount})") },
+                leadingIcon = if (c.emoji.isBlank()) {
+                    { Box(Modifier.size(10.dp).clip(CircleShape).background(color)) }
+                } else null,
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = color.copy(alpha = 0.22f),
+                    selectedLabelColor = MaterialTheme.colorScheme.onSurface,
+                ),
+            )
+        }
+        if (categories.isNotEmpty()) {
+            item {
+                FilterChip(
+                    selected = selected == CategoryFilter.Uncategorized,
+                    onClick = { onSelect(CategoryFilter.Uncategorized) },
+                    label = { Text("Zonder categorie ($uncategorized)") },
+                )
+            }
+        }
+        item {
+            AssistChip(
+                onClick = onManage,
+                label = { Text(if (categories.isEmpty()) "Categorieën maken" else "Beheren") },
+                leadingIcon = { Icon(if (categories.isEmpty()) Icons.Filled.Add else Icons.Filled.Tune, null, Modifier.size(18.dp)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryBanner(cat: CategoryEntity, count: Int, onOpen: () -> Unit) {
+    val color = categoryColor(cat.colorIndex)
+    Card(
+        onClick = onOpen,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(cat.emoji.ifBlank { "🏷️" }, fontSize = 26.sp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(cat.name, style = MaterialTheme.typography.titleMedium, color = color, fontWeight = FontWeight.SemiBold)
                 Text(
-                    rec.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    "$count opname" + (if (count == 1) "" else "s") + " · actiepunten, besluiten en rapport",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.width(8.dp))
-                StatusChip(rec)
             }
-            Spacer(Modifier.height(4.dp))
-            val meta = buildList {
-                add(Format.dateTime(rec.createdAt))
-                if (rec.durationMs > 0) add(Format.duration(rec.durationMs))
-                rec.estimatedCostUsd?.let { add("≈ " + Format.usd(it)) }
-            }.joinToString("  ·  ")
-            Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            rec.errorMessage?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
-            }
+            Text("Overzicht ›", style = MaterialTheme.typography.labelLarge, color = color)
         }
     }
 }

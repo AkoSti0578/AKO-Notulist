@@ -3,6 +3,9 @@ package nl.arnoldkolkman.akonotulist.ui.detail
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.text.style.TextDecoration
+import nl.arnoldkolkman.akonotulist.data.ActionItemStatus
 import androidx.compose.material3.CircularProgressIndicator
 import nl.arnoldkolkman.akonotulist.summary.Translator
 import androidx.compose.foundation.lazy.LazyRow
@@ -108,7 +111,7 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
+fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, onManageCategories: () -> Unit = {}) {
     val ctx = LocalContext.current
     val c = ctx.appContainer
     val scope = rememberCoroutineScope()
@@ -119,6 +122,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
     val summary by remember(recordingId) { c.db.summaries().observe(recordingId) }.collectAsStateWithLifecycle(null)
     val markers by remember(recordingId) { c.db.markers().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     val translations by remember(recordingId) { c.db.translations().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
+    val actionStatuses by remember(recordingId) { c.db.actionItems().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     var askResummarize by remember { mutableStateOf(false) }
 
     var renaming by remember { mutableStateOf(false) }
@@ -184,6 +188,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                     scope.launch { c.db.recordings().setStatus(r.id, RecordingStatus.RECORDED) }
                 },
             )
+            RecordingCategoriesRow(r.id, hasTranscript = segments.isNotEmpty(), onManage = onManageCategories)
             if (player != null) PlayerBar(player) else if (r.audioDeletedAt != null) {
                 Text(
                     "Audio verwijderd volgens het bewaarbeleid; de tekst is bewaard.",
@@ -216,7 +221,12 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit) {
                     onFollowChange = { followPlayback = it },
                     onReassign = { seg, label -> scope.launch { reassign(c, seg, label) } },
                 )
-                tab == 1 -> SummaryPane(summary, r, onGenerate = { PostProcessWorker.enqueue(ctx, r.id, forceSummary = true) })
+                tab == 1 -> SummaryPane(
+                    summary, r,
+                    statuses = actionStatuses,
+                    onToggleAction = { i, text, done -> scope.launch { c.categories.setActionDone(r.id, i, text, done) } },
+                    onGenerate = { PostProcessWorker.enqueue(ctx, r.id, forceSummary = true) },
+                )
                 else -> TranslationPane(
                     recordingId = r.id,
                     title = r.title,
@@ -492,7 +502,13 @@ private fun nextLabel(used: List<String>): String {
 }
 
 @Composable
-private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate: () -> Unit) {
+private fun SummaryPane(
+    summary: SummaryEntity?,
+    r: RecordingEntity,
+    statuses: List<ActionItemStatus>,
+    onToggleAction: (index: Int, text: String, done: Boolean) -> Unit,
+    onGenerate: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (summary == null) {
             Text(
@@ -515,11 +531,34 @@ private fun SummaryPane(summary: SummaryEntity?, r: RecordingEntity, onGenerate:
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Samenvatting", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 Text(summary.summary, style = MaterialTheme.typography.bodyLarge)
-                if (actions.isNotEmpty()) {
-                    Text("Actiepunten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    actions.forEach { Text("☐  $it", style = MaterialTheme.typography.bodyLarge) }
+            }
+        }
+        if (actions.isNotEmpty()) {
+            val done = statuses.filter { it.done }.associate { it.itemIndex to it.text }
+            Text(
+                "Actiepunten (${actions.indices.count { done[it] == actions[it] }}/${actions.size} afgerond)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            actions.forEachIndexed { i, text ->
+                val isDone = done[i] == text
+                Row(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { onToggleAction(i, text, !isDone) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = isDone, onCheckedChange = { onToggleAction(i, text, it) })
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textDecoration = if (isDone) TextDecoration.LineThrough else null,
+                        color = if (isDone) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    )
                 }
-                if (decisions.isNotEmpty()) {
+            }
+        }
+        if (decisions.isNotEmpty()) {
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Besluiten", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     decisions.forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
                 }

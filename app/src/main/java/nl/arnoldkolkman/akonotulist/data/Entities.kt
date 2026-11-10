@@ -141,3 +141,49 @@ data class SummaryEntity(
     val model: String,
     val createdAt: Long,
 )
+
+/** A user-defined category ("Werk", "Klanten", …) that recordings can be filed under. */
+@Entity(tableName = "categories", indices = [Index(value = ["name"], unique = true)])
+data class CategoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val emoji: String = "",
+    /** Index into the category colour palette. */
+    val colorIndex: Int = 0,
+    /** What belongs here; also guides the automatic (AI) categorisation. */
+    val description: String = "",
+    val sortOrder: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Many-to-many: a recording can be in several categories. */
+@Entity(
+    tableName = "recording_categories",
+    primaryKeys = ["recordingId", "categoryId"],
+    indices = [Index("categoryId")],
+    foreignKeys = [
+        ForeignKey(RecordingEntity::class, ["id"], ["recordingId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(CategoryEntity::class, ["id"], ["categoryId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class RecordingCategoryRef(
+    val recordingId: Long,
+    val categoryId: Long,
+    /** True when the assignment was made by the automatic categorisation. */
+    val byAi: Boolean = false,
+)
+
+/** Done/open state of one action item of a recording's summary. */
+@Entity(
+    tableName = "action_item_status",
+    primaryKeys = ["recordingId", "itemIndex"],
+    foreignKeys = [ForeignKey(RecordingEntity::class, ["id"], ["recordingId"], onDelete = ForeignKey.CASCADE)],
+)
+data class ActionItemStatus(
+    val recordingId: Long,
+    val itemIndex: Int,
+    /** Text at the time it was ticked; a regenerated summary with other items ignores stale rows. */
+    val text: String,
+    val done: Boolean,
+    val doneAt: Long? = null,
+)

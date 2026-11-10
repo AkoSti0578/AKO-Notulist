@@ -115,6 +115,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                 TextSetting("Chatmodel", s.summaryModel) { v -> update { it.copy(summaryModel = v.trim()) } }
             }
 
+            Section("Categorieën") {
+                SwitchSetting(
+                    "Automatisch categoriseren",
+                    "Na het transcriberen kiest het chatmodel de passende categorie(ën). Handmatige keuzes worden nooit overschreven.",
+                    s.autoCategorize,
+                ) { v -> update { it.copy(autoCategorize = v) } }
+            }
+
             Section("Opslag") {
                 Text("Audio verwijderen na (tekst blijft bewaard)", style = MaterialTheme.typography.labelLarge)
                 val options = listOf(0 to "Nooit", 1 to "1 dag", 7 to "7 dagen", 30 to "30 dagen", 90 to "90 dagen")

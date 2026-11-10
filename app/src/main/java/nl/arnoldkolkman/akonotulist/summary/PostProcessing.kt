@@ -202,6 +202,8 @@ class PostProcessWorker(context: Context, params: WorkerParameters) : CoroutineW
             val model = s.summaryModel.ifBlank { nl.arnoldkolkman.akonotulist.transcribe.ChatModels.DEFAULT }
             if (s.estimateSpeakers && !force) processor.estimateSpeakers(id, model)
             if (s.summaryEnabled || force) processor.summarize(id, model)
+            // Automatic categorisation is a nicety: never let it fail the post-processing.
+            if (s.autoCategorize && !force) runCatching { c.categories.autoCategorize(id, onlyIfEmpty = true) }
             c.finishRecording(id, null)
             Result.success()
         } catch (e: OpenAiException) {

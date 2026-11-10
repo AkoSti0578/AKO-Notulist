@@ -20,6 +20,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
 import nl.arnoldkolkman.akonotulist.recording.StartResult
+import nl.arnoldkolkman.akonotulist.ui.category.CategoriesScreen
+import nl.arnoldkolkman.akonotulist.ui.category.CategoryDashboardScreen
 import nl.arnoldkolkman.akonotulist.ui.detail.DetailScreen
 import nl.arnoldkolkman.akonotulist.ui.list.RecordingsScreen
 import nl.arnoldkolkman.akonotulist.ui.search.SearchScreen
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity() {
                             onOpen = { nav.navigate("detail/$it") },
                             onSearch = { nav.navigate("search") },
                             onSettings = { nav.navigate("settings") },
+                            onCategories = { nav.navigate("categories") },
+                            onCategoryDashboard = { nav.navigate("category/$it") },
                         )
                     }
                     composable(
@@ -70,12 +74,23 @@ class MainActivity : ComponentActivity() {
                             recordingId = entry.arguments?.getLong("id") ?: 0,
                             initialSeekMs = entry.arguments?.getLong("seek")?.takeIf { it >= 0 },
                             onBack = { nav.popBackStack() },
+                            onManageCategories = { nav.navigate("categories") },
                         )
                     }
                     composable("search") {
                         SearchScreen(
                             onBack = { nav.popBackStack() },
                             onOpen = { id, seek -> nav.navigate("detail/$id?seek=$seek") },
+                        )
+                    }
+                    composable("categories") {
+                        CategoriesScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("category/$it") })
+                    }
+                    composable("category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                        CategoryDashboardScreen(
+                            categoryId = entry.arguments?.getLong("id") ?: 0,
+                            onBack = { nav.popBackStack() },
+                            onOpenRecording = { nav.navigate("detail/$it") },
                         )
                     }
                     composable("settings") { SettingsScreen(onBack = { nav.popBackStack() }) }

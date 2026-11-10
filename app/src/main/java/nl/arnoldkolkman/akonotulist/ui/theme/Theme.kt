@@ -38,6 +38,14 @@ val SpeakerColors = listOf(
     Color(0xFFE69F00), Color(0xFF56B4E9), Color(0xFF7A5195), Color(0xFF8C6D31),
 )
 
+/** Palette for categories (index stored per category). Distinct in light and dark mode. */
+val CategoryColors = listOf(
+    Color(0xFF0E7C86), Color(0xFF3F6AD8), Color(0xFF2E9E5B), Color(0xFFD9822B), Color(0xFF8E44AD),
+    Color(0xFFE5A50A), Color(0xFFE5484D), Color(0xFF7A6A58), Color(0xFFD6336C), Color(0xFF5C7080),
+)
+
+fun categoryColor(index: Int): Color = CategoryColors[index.mod(CategoryColors.size)]
+
 fun speakerColor(label: String?): Color {
     if (label.isNullOrEmpty()) return Color.Gray
     val idx = if (label.length == 1 && label[0] in 'A'..'Z') label[0] - 'A' else label.hashCode().mod(SpeakerColors.size)

@@ -155,6 +155,106 @@ interface MarkerDao {
     suspend fun delete(id: Long)
 }
 
+data class CategoryWithCount(
+    val id: Long,
+    val name: String,
+    val emoji: String,
+    val colorIndex: Int,
+    val description: String,
+    val sortOrder: Int,
+    val createdAt: Long,
+    val recordingCount: Int,
+) {
+    fun toEntity() = CategoryEntity(id, name, emoji, colorIndex, description, sortOrder, createdAt)
+}
+
+@Dao
+interface CategoryDao {
+    @Query(
+        """
+        SELECT c.*, (SELECT COUNT(*) FROM recording_categories rc WHERE rc.categoryId = c.id) AS recordingCount
+        FROM categories c ORDER BY c.sortOrder, c.name COLLATE NOCASE
+        """
+    )
+    fun observeWithCounts(): Flow<List<CategoryWithCount>>
+
+    @Query("SELECT * FROM categories ORDER BY sortOrder, name COLLATE NOCASE")
+    suspend fun all(): List<CategoryEntity>
+
+    @Query("SELECT * FROM categories WHERE id = :id")
+    fun observe(id: Long): Flow<CategoryEntity?>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM categories")
+    suspend fun maxSortOrder(): Int
+
+    @Insert
+    suspend fun insert(category: CategoryEntity): Long
+
+    @Upsert
+    suspend fun upsert(category: CategoryEntity)
+
+    @Query("DELETE FROM categories WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    // --- assignments ---------------------------------------------------------------------
+
+    @Query("SELECT * FROM recording_categories")
+    fun observeAllRefs(): Flow<List<RecordingCategoryRef>>
+
+    @Query("SELECT * FROM recording_categories WHERE recordingId = :recordingId")
+    suspend fun refsFor(recordingId: Long): List<RecordingCategoryRef>
+
+    @Query("SELECT * FROM recording_categories WHERE recordingId = :recordingId")
+    fun observeRefsFor(recordingId: Long): Flow<List<RecordingCategoryRef>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun assign(ref: RecordingCategoryRef)
+
+    @Query("DELETE FROM recording_categories WHERE recordingId = :recordingId AND categoryId = :categoryId")
+    suspend fun unassign(recordingId: Long, categoryId: Long)
+
+    @Query("DELETE FROM recording_categories WHERE recordingId = :recordingId")
+    suspend fun clearFor(recordingId: Long)
+
+    /** Replaces the categories of [recordingId]; keeps the AI flag of assignments that stay. */
+    @Transaction
+    suspend fun setFor(recordingId: Long, categoryIds: Set<Long>, byAi: Boolean = false) {
+        val existing = refsFor(recordingId).associateBy { it.categoryId }
+        clearFor(recordingId)
+        categoryIds.forEach { id -> assign(existing[id] ?: RecordingCategoryRef(recordingId, id, byAi)) }
+    }
+
+    // --- per-category content ------------------------------------------------------------
+
+    @Query(
+        """
+        SELECT r.* FROM recordings r JOIN recording_categories rc ON rc.recordingId = r.id
+        WHERE rc.categoryId = :categoryId ORDER BY r.createdAt DESC
+        """
+    )
+    fun observeRecordings(categoryId: Long): Flow<List<RecordingEntity>>
+
+    @Query(
+        """
+        SELECT s.* FROM summaries s JOIN recording_categories rc ON rc.recordingId = s.recordingId
+        WHERE rc.categoryId = :categoryId
+        """
+    )
+    fun observeSummaries(categoryId: Long): Flow<List<SummaryEntity>>
+}
+
+@Dao
+interface ActionItemDao {
+    @Query("SELECT * FROM action_item_status")
+    fun observeAll(): Flow<List<ActionItemStatus>>
+
+    @Query("SELECT * FROM action_item_status WHERE recordingId = :recordingId")
+    fun observe(recordingId: Long): Flow<List<ActionItemStatus>>
+
+    @Upsert
+    suspend fun upsert(status: ActionItemStatus)
+}
+
 @Dao
 interface SummaryDao {
     @Query("SELECT * FROM summaries WHERE recordingId = :recordingId")

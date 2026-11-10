@@ -88,6 +88,22 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
 - Kies je een model zonder sprekerherkenning, dan kan het chatmodel per zin inschatten wie er
   spreekt. Alleen de labels worden aangepast, de tekst blijft ongewijzigd.
 
+**Categorieën**
+- Maak categorieën aan met een naam, emoji, kleur en korte omschrijving: tik op 🏷 in de
+  bovenbalk. Er zijn suggesties om snel te beginnen (Werk, Klanten, Overleg, Ideeën, Privé).
+- Een **filterbalk** boven de lijst: *Alle · 💼 Werk (12) · 🤝 Klanten (5) · Zonder categorie*.
+  Elke opname krijgt gekleurde labels en een gekleurd streepje.
+- **Overzicht per categorie**:
+  - cijfers: aantal opnames, totale duur, open acties en kosten;
+  - een **gezamenlijke afvinklijst met alle actiepunten** uit alle opnames, met voortgangsbalk;
+  - tabbladen met besluiten, opnames en samenvattingen;
+  - het geheel **delen als rapport** (.docx, .md of .txt).
+- **Automatisch indelen:** na het transcriberen kiest het chatmodel de passende categorie
+  (gemarkeerd met ✨). In het detailscherm kan dit ook met de knop **✨ Voorstellen**.
+  Handmatige keuzes worden nooit overschreven, en de functie is uit te zetten in Instellingen.
+- **Meerdere opnames tegelijk indelen:** houd een opname ingedrukt, tik op de andere en kies 🏷.
+- Actiepunten zijn ook in het detailscherm af te vinken, gekoppeld aan het overzicht van de categorie.
+
 **Vertalen**
 - Op het tabblad **Vertaling** vertaal je met één tik het transcript en de samenvatting naar
   het **Engels**, **Duits** of **Frans**.

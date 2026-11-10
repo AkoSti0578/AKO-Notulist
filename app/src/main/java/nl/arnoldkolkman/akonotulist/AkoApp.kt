@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nl.arnoldkolkman.akonotulist.audio.AudioFiles
+import nl.arnoldkolkman.akonotulist.category.CategoryRepository
 import nl.arnoldkolkman.akonotulist.core.Format
 import nl.arnoldkolkman.akonotulist.core.Notifications
 import nl.arnoldkolkman.akonotulist.core.SecretStore
@@ -68,6 +69,7 @@ class AppContainer(val app: Application) {
     val importer = AudioImporter(app)
     val openAi = OpenAiClient(apiKey = { secrets.getApiKey() })
     val transcription by lazy { TranscriptionScheduler(app, this) }
+    val categories by lazy { CategoryRepository(this) }
 
     /** One-shot events, e.g. "transcription done" for the car's spoken notice. */
     val events = MutableSharedFlow<AppEvent>(extraBufferCapacity = 16)
@@ -115,7 +117,8 @@ class AppContainer(val app: Application) {
         val rec = db.recordings().get(id) ?: return
         val model = TranscriptionModels.byId(rec.transcriptionModel)
         val needsSpeakers = s.estimateSpeakers && !model.hasDiarization
-        if (s.summaryEnabled || needsSpeakers) {
+        val needsCategory = s.autoCategorize && db.categories().all().isNotEmpty()
+        if (s.summaryEnabled || needsSpeakers || needsCategory) {
             db.recordings().setStatus(id, RecordingStatus.SUMMARIZING, 95)
             PostProcessWorker.enqueue(app, id)
         } else {

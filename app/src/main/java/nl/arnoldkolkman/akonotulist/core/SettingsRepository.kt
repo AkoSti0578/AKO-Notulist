@@ -29,6 +29,8 @@ data class AppSettings(
     val carTts: Boolean = true,
     /** Keep the display on while the app is visible (toggle on the main screen). */
     val keepScreenOn: Boolean = false,
+    /** Let the chat model file new recordings under the user's categories. */
+    val autoCategorize: Boolean = true,
     val rateOverrides: Map<String, Double> = emptyMap(),
 ) {
     fun rateFor(modelId: String): Double =
@@ -49,6 +51,7 @@ class SettingsRepository(private val context: Context) {
         val vocabulary = stringPreferencesKey("vocabulary")
         val carTts = booleanPreferencesKey("car_tts")
         val keepScreenOn = booleanPreferencesKey("keep_screen_on")
+        val autoCategorize = booleanPreferencesKey("auto_categorize")
         fun rate(modelId: String) = doublePreferencesKey("rate_$modelId")
     }
 
@@ -69,6 +72,7 @@ class SettingsRepository(private val context: Context) {
             vocabulary = this[Keys.vocabulary] ?: d.vocabulary,
             carTts = this[Keys.carTts] ?: d.carTts,
             keepScreenOn = this[Keys.keepScreenOn] ?: d.keepScreenOn,
+            autoCategorize = this[Keys.autoCategorize] ?: d.autoCategorize,
             rateOverrides = TranscriptionModels.all.mapNotNull { m -> this[Keys.rate(m.id)]?.let { m.id to it } }.toMap(),
         )
     }
@@ -86,6 +90,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.vocabulary] = s.vocabulary
             prefs[Keys.carTts] = s.carTts
             prefs[Keys.keepScreenOn] = s.keepScreenOn
+            prefs[Keys.autoCategorize] = s.autoCategorize
             TranscriptionModels.all.forEach { m ->
                 val r = s.rateOverrides[m.id]
                 if (r == null) prefs.remove(Keys.rate(m.id)) else prefs[Keys.rate(m.id)] = r
