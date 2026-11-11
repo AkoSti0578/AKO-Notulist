@@ -14,7 +14,9 @@ import kotlinx.coroutines.launch
 import nl.arnoldkolkman.akonotulist.audio.AudioFiles
 import nl.arnoldkolkman.akonotulist.category.CategoryRepository
 import nl.arnoldkolkman.akonotulist.core.Format
+import nl.arnoldkolkman.akonotulist.core.DebugConfig
 import nl.arnoldkolkman.akonotulist.core.Notifications
+import nl.arnoldkolkman.akonotulist.core.ProcessingLog
 import nl.arnoldkolkman.akonotulist.core.SecretStore
 import nl.arnoldkolkman.akonotulist.core.SettingsRepository
 import nl.arnoldkolkman.akonotulist.data.AppDatabase
@@ -41,6 +43,15 @@ class AkoApp : Application() {
         container.recoverInterruptedRecordings()
         RetentionWorker.schedule(this)
         publishShortcuts()
+        container.debugConfig?.let { dc ->
+            dc.apiKey?.let { container.secrets.setApiKey(it) }
+            // One-shot: only while the recording is still waiting (process restarts must not re-enqueue).
+            dc.transcribeOnStart.forEach { id ->
+                container.appScope.launchIo {
+                    if (container.db.recordings().get(id)?.status == RecordingStatus.RECORDED) container.transcription.enqueue(id, fresh = true)
+                }
+            }
+        }
     }
 
     /** Long-press the launcher icon -> "Opname starten". Dynamic, so it also works for the .debug build. */
@@ -67,9 +78,13 @@ class AppContainer(val app: Application) {
     val secrets = SecretStore(app)
     val recorder = RecordingController(app)
     val importer = AudioImporter(app)
-    val openAi = OpenAiClient(apiKey = { secrets.getApiKey() })
+    val debugConfig: DebugConfig? = DebugConfig.load(app)
+    val openAi = debugConfig?.baseUrl
+        ?.let { OpenAiClient(apiKey = { secrets.getApiKey() }, baseUrl = it) }
+        ?: OpenAiClient(apiKey = { secrets.getApiKey() })
     val transcription by lazy { TranscriptionScheduler(app, this) }
     val categories by lazy { CategoryRepository(this) }
+    val processingLog = ProcessingLog(File(app.filesDir, "logs"))
 
     /** One-shot events, e.g. "transcription done" for the car's spoken notice. */
     val events = MutableSharedFlow<AppEvent>(extraBufferCapacity = 16)

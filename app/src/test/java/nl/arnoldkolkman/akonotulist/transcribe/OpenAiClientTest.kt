@@ -128,4 +128,15 @@ class OpenAiClientTest {
         }
         assertEquals(0, server.requestCount)
     }
+
+    @Test fun uploadProgressReachesFullFileSize() = runBlocking {
+        audio.writeBytes(ByteArray(300_000) { (it % 251).toByte() })
+        respond(200, """{"text":"ok"}""")
+        val reports = mutableListOf<Pair<Long, Long>>()
+        client.transcribe(audio, TranscriptionModels.GPT_TRANSCRIBE, "nl", null, emptyList(), onUploadProgress = { s, t -> reports += s to t })
+        assertTrue("progress reported several times", reports.size > 1)
+        assertEquals(300_000L, reports.last().first)
+        assertEquals(300_000L, reports.last().second)
+        assertEquals(reports.map { it.first }.sorted(), reports.map { it.first })
+    }
 }

@@ -76,6 +76,12 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
   een kort referentiefragment en stuurt dat mee als `known_speaker_references[]`.
 - Uploaden gebeurt via **WorkManager**: alleen met netwerk, met exponentiële backoff en
   zichtbare voortgang (in de app en als melding).
+- **3 delen tegelijk**, met echte voortgang ("4 van 14 delen klaar · uploaden 63% · OpenAI verwerkt
+  2 delen (1:12)"). Een opname van 2 uur is daardoor ongeveer 3× sneller klaar.
+- Mag de taak niet als voorgrondtaak draaien, dan werkt de app in korte rondes en gaat hij steeds
+  verder bij het volgende deel. Er wordt nooit een deel halverwege weggegooid of dubbel betaald.
+- Een **verwerkingslog** per opname (menu ⋮) laat precies zien wat er gebeurt: verstuurd, wachten
+  op OpenAI, klaar, of waarom het wacht.
 - Afgeronde stukken worden opgeslagen. Een nieuwe poging betaalt dus nooit twee keer voor
   dezelfde audio.
 
@@ -465,7 +471,8 @@ samenvatting) → `DONE` → melding en het event "Transcriptie klaar" voor de a
 |---|---|
 | App verschijnt niet in Android Auto | Installer moet de Play Store zijn (zie installatie). Controleer *Onbekende bronnen* en *Launcher aanpassen*. Na een Android Auto-update opnieuw controleren. |
 | "Starten mislukt" in de auto | Open de app één keer op de telefoon en geef de microfoontoestemming. Android 14+ laat een microfoondienst niet starten zonder eerdere toestemming. |
-| Transcriptie blijft "In de wachtrij" | Wacht op een netwerkverbinding; WorkManager probeert het automatisch opnieuw. |
+| Transcriptie blijft "In de wachtrij" | Android start de taak pas bij een netwerk dat het als "met internet" heeft gecontroleerd. Een VPN, een privé-DNS die niet werkt of een netwerk zonder internet (bijv. wifi van de auto) kan dat blokkeren. Bekijk het **Verwerkingslog** (menu ⋮ in de opname). |
+| Lange opname gaat traag of in rondes | Android staat de app op de achtergrond geen voorgrondtaak toe zolang de **batterijbeperking** aan staat. De app werkt dan in rondes van 5 min en gaat steeds verder waar hij was. Hef de beperking op via *Instellingen → Achtergrondverwerking*; op Samsung ook *Batterij → Limieten achtergrondgebruik → Nooit in slaapstand*. |
 | "Ongeldige OpenAI API-sleutel (401)" | Zet een nieuwe sleutel onder *Instellingen* en tik op **Test**. |
 | "OpenAI-tegoed is op" | Controleer je tegoed en limieten op platform.openai.com. Tik daarna op **Opnieuw proberen**; afgeronde delen worden niet opnieuw betaald. |
 | Opname stopt op de achtergrond | Zet batterijoptimalisatie voor AKO Notulist uit (*Instellingen → Apps → AKO Notulist → Batterij → Onbeperkt*). |

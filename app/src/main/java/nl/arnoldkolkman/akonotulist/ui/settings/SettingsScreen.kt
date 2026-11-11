@@ -46,6 +46,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import nl.arnoldkolkman.akonotulist.BuildConfig
@@ -113,6 +115,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                     update { it.copy(summaryEnabled = v) }
                 }
                 TextSetting("Chatmodel", s.summaryModel) { v -> update { it.copy(summaryModel = v.trim()) } }
+            }
+
+            Section("Achtergrondverwerking") {
+                BatteryOptimizationRow()
             }
 
             Section("Categorieën") {
@@ -265,4 +271,43 @@ private fun TextSetting(
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * Battery optimisation status. Apps on Android's battery allow-list may run the transcription as
+ * a foreground task from the background, so long recordings finish in one go instead of in rounds.
+ */
+@android.annotation.SuppressLint("BatteryLife")
+@Composable
+private fun BatteryOptimizationRow() {
+    val ctx = LocalContext.current
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var restricted by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            restricted = !ctx.getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+        }
+    }
+    Text(
+        if (restricted) "Batterijbeperking staat AAN. Android kan het transcriberen van lange opnames op de achtergrond onderbreken; " +
+            "de app werkt dan in korte rondes en is daardoor trager."
+        else "Batterijbeperking staat uit: lange opnames worden in één keer op de achtergrond getranscribeerd. 👍",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    if (restricted) {
+        Button(onClick = {
+            val i = android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                "package:${ctx.packageName}".toUri(),
+            )
+            runCatching { ctx.startActivity(i) }.onFailure {
+                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }) { Text("Beperking opheffen") }
+        Text(
+            "Samsung: controleer ook Instellingen → Batterij → Limieten achtergrondgebruik, en zet AKO Notulist bij \"Nooit in slaapstand\".",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

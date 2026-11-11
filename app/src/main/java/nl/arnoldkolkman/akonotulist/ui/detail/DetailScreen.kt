@@ -3,6 +3,7 @@ package nl.arnoldkolkman.akonotulist.ui.detail
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.Checkbox
 import androidx.compose.ui.text.style.TextDecoration
 import nl.arnoldkolkman.akonotulist.data.ActionItemStatus
@@ -124,6 +125,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, on
     val translations by remember(recordingId) { c.db.translations().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     val actionStatuses by remember(recordingId) { c.db.actionItems().observe(recordingId) }.collectAsStateWithLifecycle(emptyList())
     var askResummarize by remember { mutableStateOf(false) }
+    var showLog by remember { mutableStateOf(false) }
 
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -169,6 +171,11 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, on
                             }
                             DropdownMenuItem(text = { Text("Naam wijzigen") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menuOpen = false; renaming = true })
                             DropdownMenuItem(
+                                text = { Text("Verwerkingslog") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, null) },
+                                onClick = { menuOpen = false; showLog = true },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Verwijderen", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = { menuOpen = false; confirmDelete = true },
@@ -188,6 +195,9 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, on
                     scope.launch { c.db.recordings().setStatus(r.id, RecordingStatus.RECORDED) }
                 },
             )
+            if (r.status == RecordingStatus.QUEUED || r.status == RecordingStatus.TRANSCRIBING || r.status == RecordingStatus.SUMMARIZING) {
+                BackgroundWorkHint(onShowLog = { showLog = true })
+            }
             RecordingCategoriesRow(r.id, hasTranscript = segments.isNotEmpty(), onManage = onManageCategories)
             if (player != null) PlayerBar(player) else if (r.audioDeletedAt != null) {
                 Text(
@@ -264,6 +274,7 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, on
             if (changed && summary != null) askResummarize = true
         }
     }
+    if (showLog) ProcessingLogDialog(recordingId) { showLog = false }
     if (askResummarize && r != null) {
         AlertDialog(
             onDismissRequest = { askResummarize = false },

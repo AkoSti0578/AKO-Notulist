@@ -14,6 +14,17 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import android.os.SystemClock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import nl.arnoldkolkman.akonotulist.AppContainer
@@ -64,6 +75,18 @@ class TranscriptionScheduler(private val context: Context, private val c: AppCon
             .addTag(TAG)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(workName(recordingId), ExistingWorkPolicy.REPLACE, request)
+        c.processingLog.add(recordingId, "In de wachtrij gezet${if (fresh) " (opnieuw vanaf het begin)" else ""}; start zodra er netwerk is.")
+    }
+
+    /** Continues a long transcription in a fresh job once the current one has finished. */
+    fun enqueueContinuation(recordingId: Long) {
+        val request = OneTimeWorkRequestBuilder<TranscriptionWorker>()
+            .setInputData(workDataOf(TranscriptionWorker.KEY_ID to recordingId, TranscriptionWorker.KEY_CONTINUATION to true))
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag(TAG)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(workName(recordingId), ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     fun cancel(recordingId: Long) {
@@ -88,22 +111,40 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
 
     private val c by lazy { applicationContext.appContainer }
 
+    private fun log(id: Long, msg: String) = c.processingLog.add(id, msg)
+
     override suspend fun doWork(): Result {
+        val startedAt = SystemClock.elapsedRealtime()
         val id = inputData.getLong(KEY_ID, -1)
         val rec = c.db.recordings().get(id) ?: return Result.failure()
+        log(
+            id,
+            if (inputData.getBoolean(KEY_CONTINUATION, false)) "Transcriptie gaat verder (vervolgronde)."
+            else "Transcriptie gestart" + if (runAttemptCount > 0) " (nieuwe poging ${runAttemptCount + 1})." else ".",
+        )
         val audio = rec.audioPath?.let(::File)?.takeIf { it.exists() }
             ?: return fail(rec, "Audio niet meer beschikbaar.")
         if (!c.secrets.hasApiKey()) return fail(rec, "Geen OpenAI API-sleutel ingesteld (Instellingen).")
 
-        runCatching { setForeground(foregroundInfo(rec, 0, "Transcriberen voorbereiden…")) }
+        // As a foreground service the job may run long; otherwise Android stops it after ~10 min,
+        // so we then work in short rounds and continue in a fresh job (never losing a paid chunk).
+        val fg = runCatching { setForeground(foregroundInfo(rec, 0, "Transcriberen voorbereiden…")) }
+        val budgetMs = c.debugConfig?.roundBudgetMs ?: if (fg.isSuccess) LONG_BUDGET_MS else SHORT_BUDGET_MS
+        log(
+            id,
+            if (fg.isSuccess) "Draait als voorgrondtaak (melding zichtbaar)."
+            else "Android staat geen voorgrondtaak toe (${fg.exceptionOrNull()?.javaClass?.simpleName}); " +
+                "werkt in rondes van max. ${Format.duration(budgetMs)}. Tip: hef de batterijbeperking op voor AKO Notulist " +
+                "(Instellingen → Achtergrondverwerking), dan loopt het in één keer door.",
+        )
 
         val settings = c.settings.current()
-        var model = TranscriptionModels.byId(rec.transcriptionModel ?: settings.transcriptionModel)
+        val modelRef = AtomicReference(TranscriptionModels.byId(rec.transcriptionModel ?: settings.transcriptionModel))
         val language = rec.language ?: settings.language
         val vocabulary = settings.vocabulary.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 
         val dao = c.db.recordings()
-        dao.setStatus(id, RecordingStatus.TRANSCRIBING, 0, "Transcriberen…")
+        dao.setStatus(id, RecordingStatus.TRANSCRIBING, 0, "Transcriberen voorbereiden…")
 
         val plan = ChunkPlanner.plan(rec.durationMs)
         if (plan.isEmpty()) return fail(rec, "Opname is leeg.")
@@ -113,53 +154,117 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
             c.db.chunks().insertAll(plan.map { ChunkEntity(id, it.index, it.startMs, it.endMs) })
             stored = c.db.chunks().forRecording(id)
         }
+        val rows = stored.associateBy { it.chunkIndex }
+
+        val done = ConcurrentHashMap<Int, ChunkResult>()
+        plan.forEach { w ->
+            rows[w.index]?.resultJson?.let { json ->
+                val sc = storeJson.decodeFromString(StoredChunk.serializer(), json)
+                done[w.index] = ChunkResult(w, sc.actualStartMs, sc.actualDurationMs, sc.transcript)
+            }
+        }
+        log(id, "Opname ${Format.duration(rec.durationMs)} → ${plan.size} delen van max. 10 min; ${done.size} al klaar. Model: ${modelRef.get().id}.")
 
         val workDir = File(applicationContext.cacheDir, "chunks/$id").apply { mkdirs() }
-        val results = mutableListOf<ChunkResult>()
-        val references = LinkedHashMap<String, KnownSpeaker>() // global label -> clip
+        val active = ConcurrentHashMap<Int, ChunkPhase>()
+        val references = LinkedHashMap<String, KnownSpeaker>()
+
+        suspend fun processChunk(window: ChunkWindow) {
+            val nr = window.index + 1
+            active[window.index] = ChunkPhase.Uploading(0)
+            val chunkFile = File(workDir, "chunk_${window.index}.m4a")
+            try {
+                val actualStart = AudioFiles.slice(audio, chunkFile, window.startMs, window.endMs)
+                val actualDuration = AudioFiles.durationMs(chunkFile).takeIf { it > 0 } ?: (window.endMs - actualStart)
+                val sizeKb = chunkFile.length() / 1024
+                log(id, "Deel $nr: ${Format.duration(actualDuration)} audio, $sizeKb KB versturen…")
+                val t0 = SystemClock.elapsedRealtime()
+                var uploadLogged = false
+                val onUpload: (Long, Long) -> Unit = { sent, total ->
+                    val pct = if (total > 0) (sent * 100 / total).toInt() else 0
+                    if (pct >= 100) {
+                        if (active[window.index] is ChunkPhase.Uploading) active[window.index] = ChunkPhase.Waiting(SystemClock.elapsedRealtime())
+                        if (!uploadLogged) {
+                            uploadLogged = true
+                            log(id, "Deel $nr: verstuurd in ${(SystemClock.elapsedRealtime() - t0) / 1000} s; OpenAI is aan het transcriberen…")
+                        }
+                    } else {
+                        active[window.index] = ChunkPhase.Uploading(pct)
+                    }
+                }
+                val previousText = done[window.index - 1]?.transcript?.text
+                val transcript = try {
+                    val model = modelRef.get()
+                    c.openAi.transcribe(
+                        chunkFile, model, language, buildPrompt(model, vocabulary, previousText), vocabulary,
+                        synchronized(references) { references.values.toList() }, onUpload,
+                    )
+                } catch (e: OpenAiException) {
+                    if (e.modelUnavailable && modelRef.get() != TranscriptionModels.FALLBACK) {
+                        // e.g. the diarization model after its shutdown (2027-02-26).
+                        modelRef.set(TranscriptionModels.FALLBACK)
+                        log(id, "Model niet beschikbaar (${e.message}); overgestapt op ${TranscriptionModels.FALLBACK.id}.")
+                        dao.get(id)?.let { dao.upsert(it.copy(transcriptionModel = TranscriptionModels.FALLBACK.id)) }
+                        c.openAi.transcribe(chunkFile, TranscriptionModels.FALLBACK, language, null, vocabulary, onUploadProgress = onUpload)
+                    } else throw e
+                }
+                c.db.chunks().upsert(
+                    rows.getValue(window.index).copy(
+                        resultJson = storeJson.encodeToString(StoredChunk.serializer(), StoredChunk(actualStart, actualDuration, transcript)),
+                        model = modelRef.get().id,
+                    )
+                )
+                done[window.index] = ChunkResult(window, actualStart, actualDuration, transcript)
+                log(id, "Deel $nr: klaar in ${(SystemClock.elapsedRealtime() - t0) / 1000} s (${transcript.segments.size} segmenten).")
+            } catch (e: OpenAiException) {
+                log(id, "Deel $nr: OpenAI-fout ${e.httpCode}: ${e.message}")
+                throw e
+            } catch (e: IOException) {
+                log(id, "Deel $nr: netwerkfout: ${e.message ?: e.javaClass.simpleName}")
+                throw e
+            } finally {
+                active.remove(window.index)
+                chunkFile.delete()
+            }
+        }
 
         try {
-            for (window in plan) {
-                val row = stored.first { it.chunkIndex == window.index }
-                val done = row.resultJson?.let { storeJson.decodeFromString(StoredChunk.serializer(), it) }
-                val result: ChunkResult = if (done != null) {
-                    ChunkResult(window, done.actualStartMs, done.actualDurationMs, done.transcript)
-                } else {
-                    val n = plan.size
-                    val detail = if (n > 1) "Deel ${window.index + 1} van $n uploaden…" else "Uploaden en transcriberen…"
-                    val progress = (window.index * 90) / n + 2
-                    dao.setProgress(id, progress, detail)
-                    setProgress(workDataOf("progress" to progress))
-                    runCatching { setForeground(foregroundInfo(rec, progress, detail)) }
-
-                    val chunkFile = File(workDir, "chunk_${window.index}.m4a")
-                    val actualStart = AudioFiles.slice(audio, chunkFile, window.startMs, window.endMs)
-                    val actualDuration = AudioFiles.durationMs(chunkFile).takeIf { it > 0 } ?: (window.endMs - actualStart)
-                    val prompt = buildPrompt(model, vocabulary, results.lastOrNull()?.transcript?.text)
-
-                    val transcript = try {
-                        c.openAi.transcribe(chunkFile, model, language, prompt, vocabulary, references.values.toList())
-                    } catch (e: OpenAiException) {
-                        if (e.modelUnavailable && model != TranscriptionModels.FALLBACK) {
-                            // e.g. the diarization model after its shutdown (2027-02-26).
-                            model = TranscriptionModels.FALLBACK
-                            dao.upsert(dao.get(id)!!.copy(transcriptionModel = model.id))
-                            dao.setProgress(id, progress, "Model niet beschikbaar; overgestapt op ${model.label}…")
-                            c.openAi.transcribe(chunkFile, model, language, buildPrompt(model, vocabulary, null), vocabulary)
-                        } else throw e
+            coroutineScope {
+                val ticker = launch {
+                    var lastNotified = 0L
+                    while (isActive) {
+                        val now = SystemClock.elapsedRealtime()
+                        val phases = active.values.toList()
+                        val pct = ChunkProgress.percent(done.size, plan.size, phases, now)
+                        val text = ChunkProgress.text(done.size, plan.size, phases, now)
+                        dao.setProgress(id, pct, text)
+                        setProgress(workDataOf("progress" to pct))
+                        if (fg.isSuccess && now - lastNotified > 5_000) {
+                            lastNotified = now
+                            runCatching { setForeground(foregroundInfo(rec, pct, text)) }
+                        }
+                        delay(1_000)
                     }
-                    chunkFile.delete()
-                    c.db.chunks().upsert(
-                        row.copy(
-                            resultJson = storeJson.encodeToString(StoredChunk.serializer(), StoredChunk(actualStart, actualDuration, transcript)),
-                            model = model.id,
-                        )
-                    )
-                    ChunkResult(window, actualStart, actualDuration, transcript)
                 }
-                results += result
-                if (model.hasDiarization && window.index < plan.lastIndex && references.size < 4) {
-                    updateReferences(audio, workDir, results, references)
+                try {
+                    // Chunk 1 first: it provides the speaker reference clips for all other chunks.
+                    plan.firstOrNull { !done.containsKey(it.index) && it.index == 0 }?.let { processChunk(it) }
+                    if (modelRef.get().hasDiarization) {
+                        done[0]?.let { first -> updateReferences(audio, workDir, listOf(first), references) }
+                        if (references.isNotEmpty()) log(id, "Sprekerfragmenten voor herkenning in volgende delen: ${references.keys.joinToString()}.")
+                    }
+                    // The rest in parallel (max. PARALLEL at a time), within the time budget.
+                    val gate = Semaphore(PARALLEL)
+                    plan.filter { !done.containsKey(it.index) }.map { w ->
+                        async {
+                            gate.withPermit {
+                                // Past the budget: leave the chunk for the next round instead of risking a kill mid-request.
+                                if (SystemClock.elapsedRealtime() - startedAt < budgetMs) processChunk(w)
+                            }
+                        }
+                    }.awaitAll()
+                } finally {
+                    ticker.cancel()
                 }
             }
         } catch (e: OpenAiException) {
@@ -167,23 +272,35 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
         } catch (e: IOException) {
             return retryOrFail(rec, "Netwerkfout: ${e.message ?: e.javaClass.simpleName}")
         } catch (e: kotlinx.coroutines.CancellationException) {
+            log(id, "Onderbroken door Android (${done.size}/${plan.size} delen klaar; die blijven bewaard). Wordt automatisch hervat.")
             throw e
         } catch (e: Exception) {
+            log(id, "Fout: ${e.javaClass.simpleName}: ${e.message}")
             return fail(rec, "Fout bij verwerken van de audio: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             workDir.listFiles()?.forEach { it.delete() }
         }
 
+        if (done.size < plan.size) {
+            log(id, "Tijdslimiet van deze ronde bereikt (${done.size}/${plan.size} klaar); volgende ronde wordt direct ingepland.")
+            dao.setProgress(id, ChunkProgress.percent(done.size, plan.size, emptyList(), 0), "${done.size} van ${plan.size} delen klaar · gaat zo verder…")
+            c.transcription.enqueueContinuation(id)
+            return Result.success()
+        }
+
         dao.setProgress(id, 92, "Transcript samenvoegen…")
+        val results = plan.map { done.getValue(it.index) }
         val merged = TranscriptMerger.merge(results)
         storeTranscript(id, merged)
+        log(id, "Alle ${plan.size} delen klaar in ${Format.duration(SystemClock.elapsedRealtime() - startedAt)} (deze ronde); ${merged.segments.size} zinnen.")
 
         val fresh = dao.get(id) ?: return Result.success()
+        val finalModel = modelRef.get()
         dao.upsert(
             fresh.copy(
-                transcriptionModel = model.id,
+                transcriptionModel = finalModel.id,
                 timestampsEstimated = merged.timestampsEstimated,
-                estimatedCostUsd = Format.estimateCostUsd(fresh.durationMs, settings.rateFor(model.id)),
+                estimatedCostUsd = Format.estimateCostUsd(fresh.durationMs, settings.rateFor(finalModel.id)),
             )
         )
         c.onTranscriptStored(id)
@@ -239,6 +356,7 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     private suspend fun retryOrFail(rec: RecordingEntity, message: String?): Result {
+        log(rec.id, "Tijdelijk probleem: $message")
         return if (runAttemptCount < MAX_ATTEMPTS) {
             c.db.recordings().setStatus(
                 rec.id, RecordingStatus.QUEUED, 0,
@@ -251,6 +369,7 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     private suspend fun fail(rec: RecordingEntity, message: String): Result {
+        log(rec.id, "Mislukt: $message")
         c.db.recordings().setStatus(rec.id, RecordingStatus.FAILED, 0, null, message)
         Notifications.notifyFinished(applicationContext, rec.id, rec.title, success = false, message = message)
         c.events.tryEmit(AppEvent.TranscriptionFailed(rec.id, rec.title))
@@ -269,7 +388,15 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
 
     companion object {
         const val KEY_ID = "recording_id"
+        const val KEY_CONTINUATION = "continuation"
         const val MAX_ATTEMPTS = 7
+
+        /** Chunks sent to OpenAI at the same time. */
+        const val PARALLEL = 3
+
+        /** Without a foreground service Android stops a job after ~10 min: start no new chunk after 5. */
+        const val SHORT_BUDGET_MS = 5 * 60_000L
+        const val LONG_BUDGET_MS = 45 * 60_000L
     }
 }
 

@@ -18,6 +18,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.Buffer
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -48,6 +53,30 @@ data class ChunkTranscript(
 /** Reference clip (2–10 s) used to keep speaker labels consistent across chunks. */
 data class KnownSpeaker(val name: String, val dataUrl: String)
 
+/** Reports how many bytes of the audio have actually been written to the network. */
+internal class CountingRequestBody(
+    private val delegate: RequestBody,
+    private val onProgress: (sent: Long, total: Long) -> Unit,
+) : RequestBody() {
+    override fun contentType() = delegate.contentType()
+    override fun contentLength() = delegate.contentLength()
+    override fun isOneShot() = delegate.isOneShot()
+
+    override fun writeTo(sink: BufferedSink) {
+        val total = contentLength()
+        var sent = 0L
+        val counting = object : ForwardingSink(sink) {
+            override fun write(source: Buffer, byteCount: Long) {
+                super.write(source, byteCount)
+                sent += byteCount
+                onProgress(sent, total)
+            }
+        }.buffer()
+        delegate.writeTo(counting)
+        counting.flush()
+    }
+}
+
 class OpenAiException(
     val httpCode: Int,
     message: String,
@@ -74,9 +103,10 @@ class OpenAiClient(
         prompt: String?,
         keywords: List<String>,
         knownSpeakers: List<KnownSpeaker> = emptyList(),
+        onUploadProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
     ): ChunkTranscript {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
-            addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
+            addFormDataPart("file", file.name, CountingRequestBody(file.asRequestBody("audio/mp4".toMediaType()), onUploadProgress))
             addFormDataPart("model", model.id)
             addFormDataPart(
                 "response_format",
