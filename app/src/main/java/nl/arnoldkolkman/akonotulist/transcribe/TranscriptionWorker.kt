@@ -31,6 +31,9 @@ import nl.arnoldkolkman.akonotulist.AppContainer
 import nl.arnoldkolkman.akonotulist.appContainer
 import nl.arnoldkolkman.akonotulist.audio.AudioFiles
 import nl.arnoldkolkman.akonotulist.core.Format
+import nl.arnoldkolkman.akonotulist.core.LanguageGuess
+import nl.arnoldkolkman.akonotulist.summary.LanguageFix
+import nl.arnoldkolkman.akonotulist.summary.Translator
 import nl.arnoldkolkman.akonotulist.core.Notifications
 import nl.arnoldkolkman.akonotulist.data.ChunkEntity
 import nl.arnoldkolkman.akonotulist.data.RecordingEntity
@@ -193,10 +196,10 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
                     }
                 }
                 val previousText = done[window.index - 1]?.transcript?.text
-                val transcript = try {
+                var transcript = try {
                     val model = modelRef.get()
                     c.openAi.transcribe(
-                        chunkFile, model, language, buildPrompt(model, vocabulary, previousText), vocabulary,
+                        chunkFile, model, language, buildPrompt(model, vocabulary, previousText, language), vocabulary,
                         synchronized(references) { references.values.toList() }, onUpload,
                     )
                 } catch (e: OpenAiException) {
@@ -205,8 +208,18 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
                         modelRef.set(TranscriptionModels.FALLBACK)
                         log(id, "Model niet beschikbaar (${e.message}); overgestapt op ${TranscriptionModels.FALLBACK.id}.")
                         dao.get(id)?.let { dao.upsert(it.copy(transcriptionModel = TranscriptionModels.FALLBACK.id)) }
-                        c.openAi.transcribe(chunkFile, TranscriptionModels.FALLBACK, language, null, vocabulary, onUploadProgress = onUpload)
+                        c.openAi.transcribe(
+                            chunkFile, TranscriptionModels.FALLBACK, language,
+                            buildPrompt(TranscriptionModels.FALLBACK, vocabulary, null, language), vocabulary, onUploadProgress = onUpload,
+                        )
                     } else throw e
+                }
+                transcript = ensureLanguage(id, nr, transcript, language) {
+                    val model = modelRef.get()
+                    c.openAi.transcribe(
+                        chunkFile, model, language, buildPrompt(model, vocabulary, previousText, language), vocabulary,
+                        synchronized(references) { references.values.toList() },
+                    )
                 }
                 c.db.chunks().upsert(
                     rows.getValue(window.index).copy(
@@ -345,9 +358,37 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
             }
     }
 
-    private fun buildPrompt(model: TranscriptionModel, vocabulary: List<String>, previousText: String?): String? {
+    /**
+     * The gpt-4o models sometimes answer Dutch speech with an English translation, even with
+     * language=nl. If a chunk comes back in the wrong language: transcribe once more; if it is
+     * still wrong, translate the segments into the target language (speakers and times are kept).
+     */
+    private suspend fun ensureLanguage(
+        id: Long,
+        nr: Int,
+        transcript: ChunkTranscript,
+        language: String,
+        retry: suspend () -> ChunkTranscript,
+    ): ChunkTranscript {
+        if (!LanguageGuess.isWrongLanguage(transcript.text, language)) return transcript
+        log(id, "Deel $nr: OpenAI gaf Engelse tekst terug in plaats van Nederlands; nog één keer transcriberen…")
+        val second = runCatching { retry() }.getOrNull()
+        if (second != null && !LanguageGuess.isWrongLanguage(second.text, language)) {
+            log(id, "Deel $nr: tweede poging is wel Nederlands.")
+            return second
+        }
+        val source = second ?: transcript
+        return runCatching { LanguageFix.translate(Translator(c), source, language) }
+            .onSuccess { log(id, "Deel $nr: nog steeds Engels; ${source.segments.size} zinnen naar het Nederlands vertaald (sprekers en tijden ongewijzigd).") }
+            .onFailure { log(id, "Deel $nr: vertalen naar Nederlands mislukt (${it.message}); Engelse tekst bewaard.") }
+            .getOrDefault(source)
+    }
+
+    private fun buildPrompt(model: TranscriptionModel, vocabulary: List<String>, previousText: String?, language: String? = null): String? {
         if (!model.supportsPrompt) return null
         val parts = buildList {
+            // A prompt in the target language strongly steers the output language.
+            if (language?.lowercase()?.startsWith("nl") == true) add("Dit is een Nederlandstalig gesprek, letterlijk uitgeschreven in het Nederlands.")
             if (vocabulary.isNotEmpty() && !model.supportsKeywords) add("Namen en termen: ${vocabulary.joinToString(", ")}.")
             // Carry context over the chunk boundary (recommended in the OpenAI docs).
             previousText?.takeLast(400)?.let { add(it.substringAfter(' ')) }

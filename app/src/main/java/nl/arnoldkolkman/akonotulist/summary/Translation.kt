@@ -43,8 +43,10 @@ enum class TranslationLanguage(val code: String, val label: String, val englishN
 
 /** Prompts and schemas for translation and name suggestions. Pure, unit tested. */
 object TranslationPrompts {
-    fun system(lang: TranslationLanguage) = """
-        You translate meeting transcripts from Dutch (or mixed languages) into ${lang.englishName}.
+    fun system(lang: TranslationLanguage) = system(lang.englishName)
+
+    fun system(targetEnglishName: String) = """
+        You translate meeting transcripts (Dutch, English or mixed) into $targetEnglishName.
         Translate every numbered line faithfully and naturally; keep names, numbers and terminology.
         Do not merge, split, skip or reorder lines: return exactly one translation per input line,
         in the same order, without the line numbers.
@@ -125,17 +127,21 @@ class Translator(private val c: AppContainer) {
     private suspend fun model() = c.settings.current().summaryModel.ifBlank { ChatModels.DEFAULT }
 
     /** Translates [lines]; batches and, on a misaligned answer, splits the batch and retries. */
-    suspend fun translateLines(lines: List<String>, lang: TranslationLanguage, onProgress: suspend (Int) -> Unit = {}): List<String> {
+    suspend fun translateLines(lines: List<String>, lang: TranslationLanguage, onProgress: suspend (Int) -> Unit = {}): List<String> =
+        translateLines(lines, lang.englishName, onProgress)
+
+    /** Translates [lines] into [targetEnglishName] (e.g. "Dutch"), one output line per input line. */
+    suspend fun translateLines(lines: List<String>, targetEnglishName: String, onProgress: suspend (Int) -> Unit = {}): List<String> {
         val out = ArrayList<String>(lines.size)
         val batch = 120
         for (from in lines.indices step batch) {
-            out += translateBatch(lines.subList(from, minOf(from + batch, lines.size)), lang, depth = 0)
+            out += translateBatch(lines.subList(from, minOf(from + batch, lines.size)), targetEnglishName, depth = 0)
             onProgress(minOf(100, (from + batch) * 100 / lines.size.coerceAtLeast(1)))
         }
         return out
     }
 
-    private suspend fun translateBatch(lines: List<String>, lang: TranslationLanguage, depth: Int): List<String> {
+    private suspend fun translateBatch(lines: List<String>, lang: String, depth: Int): List<String> {
         if (lines.isEmpty()) return emptyList()
         val o = c.openAi.chatJson(model(), TranslationPrompts.system(lang), TranslationPrompts.numbered(lines), "translations", TranslationPrompts.linesSchema)
         val result = TranslationPrompts.parseLines(o)

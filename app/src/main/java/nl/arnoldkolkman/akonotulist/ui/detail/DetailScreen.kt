@@ -198,6 +198,9 @@ fun DetailScreen(recordingId: Long, initialSeekMs: Long?, onBack: () -> Unit, on
             if (r.status == RecordingStatus.QUEUED || r.status == RecordingStatus.TRANSCRIBING || r.status == RecordingStatus.SUMMARIZING) {
                 BackgroundWorkHint(onShowLog = { showLog = true })
             }
+            if (segments.isNotEmpty()) {
+                LanguageFixBanner(r.id, r.language, remember(segments) { segments.map { it.text } }, c.secrets.hasApiKey())
+            }
             RecordingCategoriesRow(r.id, hasTranscript = segments.isNotEmpty(), onManage = onManageCategories)
             if (player != null) PlayerBar(player) else if (r.audioDeletedAt != null) {
                 Text(

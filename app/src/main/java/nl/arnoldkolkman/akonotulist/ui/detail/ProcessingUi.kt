@@ -44,7 +44,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import nl.arnoldkolkman.akonotulist.appContainer
+import nl.arnoldkolkman.akonotulist.summary.LanguageFix
+import nl.arnoldkolkman.akonotulist.summary.LanguageFixWorker
 
 /**
  * Shown while a recording is being processed when Android may throttle the app in the
@@ -137,4 +142,37 @@ fun ProcessingLogDialog(recordingId: Long, onDismiss: () -> Unit) {
             }) { Text("Kopiëren") }
         },
     )
+}
+
+/**
+ * Shown when (part of) a transcript came back in English although Dutch was requested;
+ * converts it in the background while keeping speakers and timestamps.
+ */
+@Composable
+fun LanguageFixBanner(recordingId: Long, language: String?, texts: List<String>, hasKey: Boolean) {
+    val ctx = LocalContext.current
+    val wrong = remember(texts, language) { LanguageFix.wrongBlocks(texts, language ?: "nl").size }
+    val work by remember(recordingId) {
+        WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(LanguageFixWorker.workName(recordingId))
+    }.collectAsStateWithLifecycle(emptyList())
+    val info = work.lastOrNull()
+    val running = info?.state == WorkInfo.State.RUNNING || info?.state == WorkInfo.State.ENQUEUED
+    if (!running && wrong == 0) return
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (running) "Bezig met omzetten naar het Nederlands… ${info?.progress?.getInt(LanguageFixWorker.KEY_PROGRESS, 0) ?: 0}%"
+                else "Dit transcript is (deels) in het Engels teruggekomen.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            if (!running) {
+                TextButton(enabled = hasKey, onClick = { LanguageFixWorker.enqueue(ctx, recordingId) }) { Text("Omzetten naar NL") }
+            }
+        }
+    }
 }
