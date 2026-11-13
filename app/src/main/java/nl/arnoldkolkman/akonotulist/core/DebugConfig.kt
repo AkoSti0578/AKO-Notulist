@@ -19,6 +19,8 @@ data class DebugConfig(
     val apiKey: String? = null,
     /** Recording ids to (re)transcribe from scratch when the app process starts. */
     val transcribeOnStart: List<Long> = emptyList(),
+    /** Recording ids whose transcript is language-checked/repaired when the app process starts. */
+    val fixLanguageOnStart: List<Long> = emptyList(),
 ) {
     companion object {
         fun load(context: Context): DebugConfig? {

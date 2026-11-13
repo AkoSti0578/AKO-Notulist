@@ -27,6 +27,7 @@ import nl.arnoldkolkman.akonotulist.transcribe.AppEvent
 import nl.arnoldkolkman.akonotulist.transcribe.OpenAiClient
 import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionScheduler
 import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionModels
+import nl.arnoldkolkman.akonotulist.summary.LanguageFixWorker
 import nl.arnoldkolkman.akonotulist.summary.PostProcessWorker
 import kotlinx.coroutines.flow.MutableSharedFlow
 import nl.arnoldkolkman.akonotulist.core.RetentionWorker
@@ -45,6 +46,7 @@ class AkoApp : Application() {
         publishShortcuts()
         container.debugConfig?.let { dc ->
             dc.apiKey?.let { container.secrets.setApiKey(it) }
+            dc.fixLanguageOnStart.forEach { id -> LanguageFixWorker.enqueue(this, id) }
             // One-shot: only while the recording is still waiting (process restarts must not re-enqueue).
             dc.transcribeOnStart.forEach { id ->
                 container.appScope.launchIo {

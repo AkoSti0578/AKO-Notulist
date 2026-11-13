@@ -67,10 +67,13 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
 - Standaard met **sprekerherkenning** (`gpt-4o-transcribe-diarize`). Andere modellen kies je in
   de instellingen.
 - **Altijd Nederlands:** de gpt-4o-modellen geven Nederlandse spraak soms terug als Engelse
-  vertaling. De app controleert daarom elk deel. Is het Engels, dan probeert hij het nog één
-  keer; is het dan nog Engels, dan vertaalt het chatmodel de zinnen terug naar het Nederlands.
-  Sprekers en tijdstempels blijven gelijk. Een bestaand (deels) Engels transcript zet je om met
-  **Omzetten naar NL** in het detailscherm.
+  vertaling, voor een heel deel of halverwege een deel. De app controleert dat per zin.
+  - Engelse stukken worden **opnieuw beluisterd** met Whisper, dat geforceerd Nederlands
+    uitschrijft. Je krijgt dus de woorden die echt gezegd zijn, geen terugvertaling.
+  - Alleen de Engelse stukken worden vervangen; de sprekers worden op tijd overgenomen.
+  - Lukt opnieuw beluisteren niet, dan vertaalt het chatmodel de zinnen als noodoplossing.
+  - Een bestaand (deels) Engels transcript herstel je met **Omzetten naar NL** in het
+    detailscherm. Dat werkt het best zolang de audio nog op het toestel staat.
 - De taal staat standaard op `nl`. Een eigen **woordenlijst** met namen en vaktermen verbetert
   de herkenning.
 - Lange opnames worden automatisch geknipt in stukken van 10 minuten met 10 seconden overlap.

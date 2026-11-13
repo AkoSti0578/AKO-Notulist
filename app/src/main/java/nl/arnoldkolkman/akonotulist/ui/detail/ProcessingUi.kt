@@ -151,7 +151,7 @@ fun ProcessingLogDialog(recordingId: Long, onDismiss: () -> Unit) {
 @Composable
 fun LanguageFixBanner(recordingId: Long, language: String?, texts: List<String>, hasKey: Boolean) {
     val ctx = LocalContext.current
-    val wrong = remember(texts, language) { LanguageFix.wrongBlocks(texts, language ?: "nl").size }
+    val wrong = remember(texts, language) { LanguageFix.wrongCount(texts, language ?: "nl") }
     val work by remember(recordingId) {
         WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(LanguageFixWorker.workName(recordingId))
     }.collectAsStateWithLifecycle(emptyList())
@@ -166,7 +166,7 @@ fun LanguageFixBanner(recordingId: Long, language: String?, texts: List<String>,
         Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (running) "Bezig met omzetten naar het Nederlands… ${info?.progress?.getInt(LanguageFixWorker.KEY_PROGRESS, 0) ?: 0}%"
-                else "Dit transcript is (deels) in het Engels teruggekomen.",
+                else "$wrong van ${texts.size} zinnen zijn in het Engels teruggekomen. Omzetten luistert die stukken opnieuw af.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )

@@ -31,8 +31,8 @@ import nl.arnoldkolkman.akonotulist.AppContainer
 import nl.arnoldkolkman.akonotulist.appContainer
 import nl.arnoldkolkman.akonotulist.audio.AudioFiles
 import nl.arnoldkolkman.akonotulist.core.Format
-import nl.arnoldkolkman.akonotulist.core.LanguageGuess
 import nl.arnoldkolkman.akonotulist.summary.LanguageFix
+import nl.arnoldkolkman.akonotulist.summary.ChunkLanguageRepair
 import nl.arnoldkolkman.akonotulist.summary.Translator
 import nl.arnoldkolkman.akonotulist.core.Notifications
 import nl.arnoldkolkman.akonotulist.data.ChunkEntity
@@ -214,13 +214,7 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
                         )
                     } else throw e
                 }
-                transcript = ensureLanguage(id, nr, transcript, language) {
-                    val model = modelRef.get()
-                    c.openAi.transcribe(
-                        chunkFile, model, language, buildPrompt(model, vocabulary, previousText, language), vocabulary,
-                        synchronized(references) { references.values.toList() },
-                    )
-                }
+                transcript = ensureLanguage(id, nr, transcript, language, chunkFile, vocabulary)
                 c.db.chunks().upsert(
                     rows.getValue(window.index).copy(
                         resultJson = storeJson.encodeToString(StoredChunk.serializer(), StoredChunk(actualStart, actualDuration, transcript)),
@@ -358,30 +352,21 @@ class TranscriptionWorker(context: Context, params: WorkerParameters) : Coroutin
             }
     }
 
-    /**
-     * The gpt-4o models sometimes answer Dutch speech with an English translation, even with
-     * language=nl. If a chunk comes back in the wrong language: transcribe once more; if it is
-     * still wrong, translate the segments into the target language (speakers and times are kept).
-     */
+    /** Checks the chunk's language and repairs English parts; see [ChunkLanguageRepair]. */
     private suspend fun ensureLanguage(
         id: Long,
         nr: Int,
         transcript: ChunkTranscript,
         language: String,
-        retry: suspend () -> ChunkTranscript,
+        chunkFile: File,
+        vocabulary: List<String>,
     ): ChunkTranscript {
-        if (!LanguageGuess.isWrongLanguage(transcript.text, language)) return transcript
-        log(id, "Deel $nr: OpenAI gaf Engelse tekst terug in plaats van Nederlands; nog één keer transcriberen…")
-        val second = runCatching { retry() }.getOrNull()
-        if (second != null && !LanguageGuess.isWrongLanguage(second.text, language)) {
-            log(id, "Deel $nr: tweede poging is wel Nederlands.")
-            return second
-        }
-        val source = second ?: transcript
-        return runCatching { LanguageFix.translate(Translator(c), source, language) }
-            .onSuccess { log(id, "Deel $nr: nog steeds Engels; ${source.segments.size} zinnen naar het Nederlands vertaald (sprekers en tijden ongewijzigd).") }
-            .onFailure { log(id, "Deel $nr: vertalen naar Nederlands mislukt (${it.message}); Engelse tekst bewaard.") }
-            .getOrDefault(source)
+        val whisper = TranscriptionModels.WHISPER
+        return ChunkLanguageRepair(
+            retranscribe = { c.openAi.transcribe(chunkFile, whisper, language, buildPrompt(whisper, vocabulary, null, language), vocabulary) },
+            translate = { lines -> Translator(c).translateLines(lines, LanguageFix.languageName(language)) },
+            log = { msg -> log(id, "Deel $nr: $msg") },
+        ).repair(transcript, language)
     }
 
     private fun buildPrompt(model: TranscriptionModel, vocabulary: List<String>, previousText: String?, language: String? = null): String? {

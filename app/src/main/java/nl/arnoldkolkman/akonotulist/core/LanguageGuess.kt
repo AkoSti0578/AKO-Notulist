@@ -16,24 +16,34 @@ object LanguageGuess {
         "mijn", "ons", "jullie", "wordt", "geen", "hoe", "waar", "zo", "want", "omdat", "heeft", "hebt", "ja",
         "nee", "even", "toch", "gewoon", "eigenlijk", "dus", "zou", "kunnen", "willen", "wil", "zeg", "weet",
     )
+    /** Spelled the same in both languages: never counted. */
+    private val ambiguous = setOf("is", "was", "had", "in", "we", "me", "he", "men", "die", "of", "a", "so", "do", "been")
     private val english = setOf(
-        "the", "and", "of", "to", "a", "it", "you", "that", "he", "was", "for", "on", "are", "with", "they",
-        "be", "at", "have", "this", "from", "or", "had", "by", "but", "not", "what", "can", "will", "would",
+        "the", "and", "of", "to", "a", "it", "you", "that", "for", "on", "are", "with", "they",
+        "be", "at", "have", "this", "from", "or", "by", "but", "not", "what", "can", "will", "would",
         "there", "so", "if", "about", "which", "do", "does", "my", "your", "our", "just", "get", "know", "think",
-        "going", "yes", "no", "i", "is", "were", "been", "should", "could", "really", "because", "also", "then",
-    ) - dutch
+        "going", "yes", "no", "i", "were", "been", "should", "could", "really", "because", "also", "then",
+        "we're", "it's", "don't", "that's", "i'm", "there's", "didn't", "can't",
+    ) - dutch - ambiguous
     private const val MIN_HITS = 12
 
     enum class Lang { DUTCH, ENGLISH, UNKNOWN }
 
-    fun guess(text: String): Lang {
+    /** (Dutch, English) function-word counts of [text]. */
+    fun score(text: String): Pair<Int, Int> {
         var nl = 0
         var en = 0
         Regex("[\\p{L}']+").findAll(text.lowercase()).forEach { m ->
             val w = m.value.trim('\'')
+            if (w in ambiguous) return@forEach
             if (w in dutch) nl++
             if (w in english) en++
         }
+        return nl to en
+    }
+
+    fun guess(text: String): Lang {
+        val (nl, en) = score(text)
         if (nl + en < MIN_HITS) return Lang.UNKNOWN
         return when {
             en > nl * 2 -> Lang.ENGLISH

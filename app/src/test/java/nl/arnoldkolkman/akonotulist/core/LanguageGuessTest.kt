@@ -31,10 +31,11 @@ class LanguageGuessTest {
         assertFalse(LanguageGuess.isWrongLanguage(mixed, "nl"))
     }
 
-    @Test fun wrongBlocksFindsOnlyTheEnglishPart() {
-        val texts = List(LanguageFix.BLOCK) { dutch } + List(LanguageFix.BLOCK) { english } + List(10) { dutch }
-        assertEquals(listOf(1), LanguageFix.wrongBlocks(texts, "nl"))
-        assertEquals(emptyList<Int>(), LanguageFix.wrongBlocks(List(5) { dutch }, "nl"))
+    @Test fun sharedWordsAreNotCountedAsEnglish() {
+        // "is", "was", "had", "in", "we" exist in both languages.
+        val t = "Dat is zo, het was gisteren en hij had gelijk. We zaten in de auto en dat was prima, want het is niet ver. " +
+            "Ik was er ook bij en ik had het niet verwacht, maar het is wel goed gegaan voor ons."
+        assertEquals(LanguageGuess.Lang.DUTCH, LanguageGuess.guess(t))
     }
 
     @Test fun languageNames() {
