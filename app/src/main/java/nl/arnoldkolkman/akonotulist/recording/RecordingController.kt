@@ -19,6 +19,8 @@ data class RecorderState(
     val level: Float = 0f,
     /** Markers set during this recording (for UI feedback). */
     val markers: Int = 0,
+    /** Microphone in use, e.g. "🎧 Galaxy Buds" or "📱 Telefoonmicrofoon". */
+    val micLabel: String? = null,
 )
 
 sealed interface StartResult {

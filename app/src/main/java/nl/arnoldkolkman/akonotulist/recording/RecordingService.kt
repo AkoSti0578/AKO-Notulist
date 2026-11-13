@@ -56,6 +56,9 @@ class RecordingService : Service() {
     private var tickJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var stopping = false
+    private var starting = false
+    private val mic by lazy { MicRouter(this) }
+    private var micLabel: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -73,7 +76,7 @@ class RecordingService : Service() {
     }
 
     private fun start() {
-        if (recorder != null || stopping) return
+        if (recorder != null || stopping || starting) return
         val now = System.currentTimeMillis()
         title = Format.defaultTitle(now)
         // startForeground must happen promptly after startForegroundService().
@@ -91,22 +94,54 @@ class RecordingService : Service() {
         val dir = File(filesDir, "audio").apply { mkdirs() }
         val file = File(dir, "rec_$now.m4a")
         outputFile = file
-
-        val r = try {
-            createRecorder(file).also { it.start() }
-        } catch (e: Exception) {
-            file.delete()
-            controller.update { RecorderState() }
-            stopEverything()
-            return
-        }
-        recorder = r
-        acquireWakeLock()
-        segmentStartedAt = SystemClock.elapsedRealtime()
-        accumulatedMs = 0
-        paused = false
+        starting = true
 
         scope.launch {
+            // Open the Bluetooth microphone first when one is connected (takes up to a few seconds).
+            val preference = MicPreference.of(container.settings.current().micPreference)
+            val route = runCatching { mic.acquire(preference) }.getOrElse {
+                MicRouter.Route("📱 Telefoonmicrofoon", false, MediaRecorder.AudioSource.MIC, null)
+            }
+            starting = false
+            if (stopping) { // Stop was pressed while the microphone was being connected.
+                mic.release()
+                controller.update { RecorderState() }
+                stopEverything()
+                return@launch
+            }
+            val r = try {
+                createRecorder(file, route).also { it.start() }
+            } catch (e: Exception) {
+                if (!route.bluetooth) null else {
+                    // Some headsets refuse the communication source: fall back to the phone.
+                    mic.release()
+                    runCatching { createRecorder(file, MicRouter.Route("📱 Telefoonmicrofoon", false, MediaRecorder.AudioSource.MIC, null)).also { it.start() } }.getOrNull()
+                }
+            }
+            if (r == null) {
+                mic.release()
+                file.delete()
+                controller.update { RecorderState() }
+                stopEverything()
+                return@launch
+            }
+            recorder = r
+            micLabel = if (route.bluetooth && mic.isRouted()) route.label else MicSelector.label(null, emptyList())
+            acquireWakeLock()
+            segmentStartedAt = SystemClock.elapsedRealtime()
+            accumulatedMs = 0
+            paused = false
+            controller.update { it.copy(active = true, micLabel = micLabel) }
+            if (route.bluetooth) {
+                mic.watch {
+                    micLabel = "📱 Telefoonmicrofoon (Bluetooth verbroken)"
+                    controller.update { st -> st.copy(micLabel = micLabel) }
+                    recordingId?.let { container.processingLog.add(it, "Bluetooth-microfoon verbroken; opname gaat door via de telefoonmicrofoon.") }
+                    refreshNotification()
+                }
+            }
+            startTicker()
+
             val id = withContext(Dispatchers.IO) {
                 container.db.recordings().insert(
                     RecordingEntity(
@@ -119,15 +154,17 @@ class RecordingService : Service() {
                 )
             }
             recordingId = id
+            container.processingLog.add(id, "Opname gestart met: $micLabel")
             controller.update { it.copy(active = true, recordingId = id) }
+            refreshNotification()
         }
-        startTicker()
     }
 
     @Suppress("DEPRECATION")
-    private fun createRecorder(file: File): MediaRecorder {
+    private fun createRecorder(file: File, route: MicRouter.Route): MediaRecorder {
         val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else MediaRecorder()
-        r.setAudioSource(MediaRecorder.AudioSource.MIC)
+        r.setAudioSource(route.audioSource)
+        route.preferredDevice?.let { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) r.setPreferredDevice(it) }
         r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
         r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
         r.setAudioChannels(1)
@@ -206,6 +243,7 @@ class RecordingService : Service() {
         tickJob?.cancel()
         val ok = r != null && runCatching { r.stop() }.isSuccess
         runCatching { r?.release() }
+        mic.release()
         releaseWakeLock()
 
         scope.launch {
@@ -237,7 +275,7 @@ class RecordingService : Service() {
         val b = NotificationCompat.Builder(this, Notifications.CHANNEL_RECORDING)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (paused) "Opname gepauzeerd" else "Opname loopt")
-            .setContentText(if (paused) "$title · ${Format.duration(elapsed)}" else title)
+            .setContentText(listOfNotNull(if (paused) "$title · ${Format.duration(elapsed)}" else title, micLabel).joinToString(" · "))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -286,6 +324,7 @@ class RecordingService : Service() {
             if (id != null) container.appScope.launch { container.onRecordingStopped(id, file, duration, true) }
             controller.update { RecorderState() }
         }
+        mic.release()
         releaseWakeLock()
         scope.cancel()
         super.onDestroy()

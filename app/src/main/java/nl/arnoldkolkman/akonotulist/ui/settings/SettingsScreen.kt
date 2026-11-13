@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import nl.arnoldkolkman.akonotulist.BuildConfig
 import nl.arnoldkolkman.akonotulist.appContainer
 import nl.arnoldkolkman.akonotulist.core.AppSettings
+import nl.arnoldkolkman.akonotulist.recording.MicPreference
 import nl.arnoldkolkman.akonotulist.transcribe.TranscriptionModels
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,6 +116,28 @@ fun SettingsScreen(onBack: () -> Unit) {
                     update { it.copy(summaryEnabled = v) }
                 }
                 TextSetting("Chatmodel", s.summaryModel) { v -> update { it.copy(summaryModel = v.trim()) } }
+            }
+
+            Section("Opnemen") {
+                Text("Microfoon", style = MaterialTheme.typography.labelLarge)
+                MicPreference.entries.forEach { m ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .selectable(selected = s.micPreference == m.key, role = Role.RadioButton) { update { it.copy(micPreference = m.key) } }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = s.micPreference == m.key, onClick = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(m.label)
+                    }
+                }
+                Text(
+                    "Bluetooth-headsets, oordopjes en carkits nemen op via de beltelefoon-verbinding (16 kHz), " +
+                        "prima voor spraak. Muziek op dat apparaat klinkt tijdens de opname even als een telefoongesprek.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Section("Achtergrondverwerking") {

@@ -4,7 +4,15 @@ import android.Manifest
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.DisposableEffect
+import nl.arnoldkolkman.akonotulist.recording.MicPreference
+import nl.arnoldkolkman.akonotulist.recording.MicRouter
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -252,6 +260,7 @@ fun RecordingsScreen(
                         Toast.makeText(ctx, "Moment gemarkeerd", Toast.LENGTH_SHORT).show()
                     },
                     onImport = { pickAudio.launch(arrayOf("audio/*", "video/mp4")) },
+                    micPreview = rememberMicPreview(MicPreference.of(settings?.micPreference)),
                 )
             }
             if (settings != null && !vm.hasApiKey()) {
@@ -371,6 +380,7 @@ private fun RecorderCard(
     onResume: () -> Unit,
     onMark: () -> Unit,
     onImport: () -> Unit,
+    micPreview: String? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -394,6 +404,16 @@ private fun RecorderCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
             )
+            // Which microphone records (or will record): Bluetooth headset, car kit or the phone.
+            val micText = if (state.active) state.micLabel else micPreview
+            if (micText != null) {
+                Text(
+                    micText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             Spacer(Modifier.height(12.dp))
             LevelMeter(level = if (state.active && !state.paused) state.level else 0f)
             Spacer(Modifier.height(16.dp))
@@ -605,4 +625,22 @@ private fun CategoryBanner(cat: CategoryEntity, count: Int, onOpen: () -> Unit) 
             Text("Overzicht ›", style = MaterialTheme.typography.labelLarge, color = color)
         }
     }
+}
+
+/** Label of the microphone that a new recording would use; follows headsets (dis)connecting. */
+@Composable
+private fun rememberMicPreview(preference: MicPreference): String {
+    val ctx = LocalContext.current
+    val router = remember { MicRouter(ctx) }
+    var label by remember(preference) { mutableStateOf(router.preview(preference)) }
+    DisposableEffect(preference) {
+        val am = ctx.getSystemService(AudioManager::class.java)
+        val cb = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) { label = router.preview(preference) }
+            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) { label = router.preview(preference) }
+        }
+        am.registerAudioDeviceCallback(cb, Handler(Looper.getMainLooper()))
+        onDispose { am.unregisterAudioDeviceCallback(cb) }
+    }
+    return label
 }

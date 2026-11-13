@@ -44,6 +44,16 @@ _Schermafbeeldingen van een echte rooktest op een Android 14-emulator._
   Android 14+). De opname loopt door met het scherm uit.
 - Een vaste melding met **Pauze/Hervatten** en **Stop**.
 - Formaat: AAC in `.m4a`, mono, 16 kHz, 32 kbps. Dat is ongeveer 14 MB per uur.
+- **Bluetooth-microfoon:** is er een Bluetooth-headset, oordopjes of een carkit verbonden, dan
+  neemt de app daarmee op. Het opnamescherm en de melding tonen welke microfoon gebruikt wordt
+  (bijv. *🎧 Galaxy Buds* of *📱 Telefoonmicrofoon*).
+  - Klassieke Bluetooth gebruikt de beltelefoon-verbinding (16 kHz). Dat is prima voor spraak,
+    maar muziek op dat apparaat klinkt tijdens de opname even als een telefoongesprek.
+  - LE Audio-oordopjes krijgen voorrang als die er zijn.
+  - Valt de Bluetooth-verbinding weg, dan gaat de opname door via de telefoonmicrofoon. Dat
+    staat ook in het Verwerkingslog.
+  - Wil je altijd de telefoon gebruiken (bijv. omdat die midden op tafel ligt)? Kies dat
+    onder *Instellingen → Opnemen → Microfoon*.
 - Importeren van m4a, mp3, wav, ogg/opus en meer, via **Delen met…** of de knop
   *Audiobestand importeren*. Elk bestand wordt omgezet naar hetzelfde spraakformaat.
 
@@ -484,4 +494,5 @@ samenvatting) → `DONE` → melding en het event "Transcriptie klaar" voor de a
 | "Ongeldige OpenAI API-sleutel (401)" | Zet een nieuwe sleutel onder *Instellingen* en tik op **Test**. |
 | "OpenAI-tegoed is op" | Controleer je tegoed en limieten op platform.openai.com. Tik daarna op **Opnieuw proberen**; afgeronde delen worden niet opnieuw betaald. |
 | Opname stopt op de achtergrond | Zet batterijoptimalisatie voor AKO Notulist uit (*Instellingen → Apps → AKO Notulist → Batterij → Onbeperkt*). |
+| Bluetooth-microfoon wordt niet gebruikt | Controleer dat de headset als **telefoon/gesprekken**-apparaat verbonden is (Bluetooth-instellingen → tandwiel → *Gesprekken* aan), niet alleen voor media. Kijk onder *Instellingen → Opnemen* of *Automatisch* aan staat. Het opnamescherm toont vóór het starten welke microfoon gebruikt gaat worden. |
 | Sprekers wisselen tussen stukken | Hernoem ze en geef dezelfde persoon dezelfde naam. Je kunt ook een losse zin toewijzen via de sprekernaam in het transcript. |

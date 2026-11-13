@@ -31,6 +31,8 @@ data class AppSettings(
     val keepScreenOn: Boolean = false,
     /** Let the chat model file new recordings under the user's categories. */
     val autoCategorize: Boolean = true,
+    /** Which microphone to record with ("auto" = Bluetooth when connected, "phone"). */
+    val micPreference: String = "auto",
     val rateOverrides: Map<String, Double> = emptyMap(),
 ) {
     fun rateFor(modelId: String): Double =
@@ -52,6 +54,7 @@ class SettingsRepository(private val context: Context) {
         val carTts = booleanPreferencesKey("car_tts")
         val keepScreenOn = booleanPreferencesKey("keep_screen_on")
         val autoCategorize = booleanPreferencesKey("auto_categorize")
+        val micPreference = stringPreferencesKey("mic_preference")
         fun rate(modelId: String) = doublePreferencesKey("rate_$modelId")
     }
 
@@ -73,6 +76,7 @@ class SettingsRepository(private val context: Context) {
             carTts = this[Keys.carTts] ?: d.carTts,
             keepScreenOn = this[Keys.keepScreenOn] ?: d.keepScreenOn,
             autoCategorize = this[Keys.autoCategorize] ?: d.autoCategorize,
+            micPreference = this[Keys.micPreference] ?: d.micPreference,
             rateOverrides = TranscriptionModels.all.mapNotNull { m -> this[Keys.rate(m.id)]?.let { m.id to it } }.toMap(),
         )
     }
@@ -91,6 +95,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.carTts] = s.carTts
             prefs[Keys.keepScreenOn] = s.keepScreenOn
             prefs[Keys.autoCategorize] = s.autoCategorize
+            prefs[Keys.micPreference] = s.micPreference
             TranscriptionModels.all.forEach { m ->
                 val r = s.rateOverrides[m.id]
                 if (r == null) prefs.remove(Keys.rate(m.id)) else prefs[Keys.rate(m.id)] = r
